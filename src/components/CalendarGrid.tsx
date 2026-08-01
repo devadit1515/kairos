@@ -1,0 +1,321 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import {
+  addDays,
+  format,
+  isSameDay,
+  isToday,
+  startOfDay,
+  startOfWeek,
+} from "date-fns";
+import { clsx } from "clsx";
+import { useStore } from "@/lib/store";
+import { layoutDay, offsetToDate, formatHour } from "@/lib/layout";
+import { CalendarBlock } from "./CalendarBlock";
+import { NowLine } from "./NowLine";
+import { formatDuration } from "@/lib/scheduler";
+import { spring } from "@/lib/motion";
+import type { Block } from "@/lib/types";
+
+const HOUR_HEIGHT = 56;
+
+export function CalendarGrid() {
+  const {
+    blocks,
+    tracks,
+    prefs,
+    view,
+    anchorDate,
+    selectedBlockId,
+    focusTrackId,
+    selectBlock,
+    addBlock,
+    toast,
+  } = useStore();
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const didAutoScroll = useRef(false);
+
+  const anchor = useMemo(() => new Date(anchorDate), [anchorDate]);
+
+  const days = useMemo(() => {
+    if (view === "day") return [startOfDay(anchor)];
+    const first = startOfWeek(anchor, { weekStartsOn: 1 });
+    return Array.from({ length: 7 }, (_, i) => addDays(first, i));
+  }, [anchor, view]);
+
+  const gridHeight =
+    ((prefs.dayEndMin - prefs.dayStartMin) / 60) * HOUR_HEIGHT;
+
+  const hourMarks = useMemo(() => {
+    const marks: number[] = [];
+    const firstHour = Math.ceil(prefs.dayStartMin / 60);
+    const lastHour = Math.floor(prefs.dayEndMin / 60);
+    for (let h = firstHour; h <= lastHour; h++) marks.push(h * 60);
+    return marks;
+  }, [prefs.dayStartMin, prefs.dayEndMin]);
+
+  /* Scroll so "now" sits about a third down the viewport — the most useful
+     default position, since you care more about what's ahead than behind. */
+  useEffect(() => {
+    if (didAutoScroll.current || !scrollRef.current) return;
+    const now = new Date();
+    const minuteOfDay = now.getHours() * 60 + now.getMinutes();
+    const ratio =
+      (minuteOfDay - prefs.dayStartMin) / (prefs.dayEndMin - prefs.dayStartMin);
+    if (ratio > 0 && ratio < 1) {
+      scrollRef.current.scrollTop = Math.max(
+        0,
+        ratio * gridHeight - scrollRef.current.clientHeight / 3,
+      );
+    }
+    didAutoScroll.current = true;
+  }, [gridHeight, prefs.dayStartMin, prefs.dayEndMin]);
+
+  // ---- drag to create ------------------------------------------------------
+  const [draft, setDraft] = useState<{
+    dayIndex: number;
+    from: Date;
+    to: Date;
+  } | null>(null);
+  const dragging = useRef(false);
+
+  const dateFromPointer = useCallback(
+    (clientY: number, day: Date) => {
+      const rect = bodyRef.current?.getBoundingClientRect();
+      if (!rect) return day;
+      return offsetToDate(
+        clientY - rect.top,
+        rect.height,
+        day,
+        prefs.dayStartMin,
+        prefs.dayEndMin,
+        15,
+      );
+    },
+    [prefs.dayStartMin, prefs.dayEndMin],
+  );
+
+  const onPointerDown = (e: React.PointerEvent, dayIndex: number) => {
+    // Only primary button, and never when starting on an existing block.
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button")) return;
+    const day = days[dayIndex];
+    const at = dateFromPointer(e.clientY, day);
+    dragging.current = true;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setDraft({ dayIndex, from: at, to: new Date(at.getTime() + 30 * 60000) });
+  };
+
+  const onPointerMove = (e: React.PointerEvent, dayIndex: number) => {
+    if (!dragging.current || !draft || draft.dayIndex !== dayIndex) return;
+    const at = dateFromPointer(e.clientY, days[dayIndex]);
+    setDraft((d) => (d ? { ...d, to: at } : d));
+  };
+
+  const onPointerUp = () => {
+    if (!dragging.current || !draft) return;
+    dragging.current = false;
+
+    const start = draft.from < draft.to ? draft.from : draft.to;
+    const end = draft.from < draft.to ? draft.to : draft.from;
+    const minutes = (end.getTime() - start.getTime()) / 60000;
+
+    setDraft(null);
+    // A click (rather than a drag) shouldn't silently create a 0-minute block.
+    if (minutes < 15) return;
+
+    const created = addBlock({
+      title: "New block",
+      kind: "fixed",
+      trackId: null,
+      start: start.toISOString(),
+      end: end.toISOString(),
+    });
+    selectBlock(created.id);
+    toast(`Blocked ${formatDuration(minutes)}`, "success");
+  };
+
+  const draftGeometry = useMemo(() => {
+    if (!draft) return null;
+    const span = prefs.dayEndMin - prefs.dayStartMin;
+    const toMin = (d: Date) =>
+      (d.getTime() - startOfDay(days[draft.dayIndex]).getTime()) / 60000;
+    const a = toMin(draft.from);
+    const b = toMin(draft.to);
+    const top = (Math.min(a, b) - prefs.dayStartMin) / span;
+    const height = Math.abs(b - a) / span;
+    return { top, height, minutes: Math.abs(b - a) };
+  }, [draft, days, prefs.dayStartMin, prefs.dayEndMin]);
+
+  const visibleBlocks = useMemo(
+    () =>
+      focusTrackId ? blocks : blocks, // filtering is visual (dimming), not removal
+    [blocks, focusTrackId],
+  );
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {/* ---- day headers ---- */}
+      <div
+        className="grid shrink-0 border-b border-line pr-[10px]"
+        style={{ gridTemplateColumns: `56px repeat(${days.length}, minmax(0,1fr))` }}
+      >
+        <div className="flex items-end justify-end pb-2 pr-2">
+          <span className="eyebrow">{format(anchor, "MMM")}</span>
+        </div>
+        {days.map((day) => {
+          const today = isToday(day);
+          return (
+            <div
+              key={day.toISOString()}
+              className="relative flex flex-col items-center gap-0.5 py-2"
+            >
+              <span
+                className={clsx(
+                  "eyebrow transition-colors",
+                  today && "!text-accent",
+                )}
+              >
+                {format(day, "EEE")}
+              </span>
+              <span
+                className={clsx(
+                  "metric flex h-7 w-7 items-center justify-center rounded-full text-sm transition-colors",
+                  today ? "bg-accent font-semibold text-void" : "text-ink-soft",
+                )}
+              >
+                {format(day, "d")}
+              </span>
+              {today && (
+                <motion.span
+                  layoutId="today-underline"
+                  transition={spring.smooth}
+                  className="absolute inset-x-3 bottom-0 h-px bg-accent"
+                  style={{ boxShadow: "0 0 12px var(--accent-glow)" }}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ---- scrollable body ---- */}
+      <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto">
+        <div
+          className="grid"
+          style={{
+            gridTemplateColumns: `56px repeat(${days.length}, minmax(0,1fr))`,
+            height: gridHeight,
+          }}
+        >
+          {/* hour gutter */}
+          <div className="relative border-r border-line">
+            {hourMarks.map((m) => (
+              <div
+                key={m}
+                className="absolute right-2 -translate-y-1/2"
+                style={{
+                  top: `${((m - prefs.dayStartMin) / (prefs.dayEndMin - prefs.dayStartMin)) * 100}%`,
+                }}
+              >
+                <span className="metric text-[10px] text-ink-faint">
+                  {formatHour(m)}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* day columns */}
+          <div
+            ref={bodyRef}
+            className="col-span-full col-start-2 grid"
+            style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0,1fr))` }}
+          >
+            {days.map((day, dayIndex) => {
+              const dayBlocks = layoutDay(
+                visibleBlocks,
+                day,
+                prefs.dayStartMin,
+                prefs.dayEndMin,
+              );
+              const isWorkDay = prefs.workDays.includes(day.getDay());
+
+              return (
+                <div
+                  key={day.toISOString()}
+                  onPointerDown={(e) => onPointerDown(e, dayIndex)}
+                  onPointerMove={(e) => onPointerMove(e, dayIndex)}
+                  onPointerUp={onPointerUp}
+                  onPointerCancel={onPointerUp}
+                  onClick={(e) => {
+                    if (e.target === e.currentTarget) selectBlock(null);
+                  }}
+                  className={clsx(
+                    "relative border-r border-line last:border-r-0",
+                    // Non-working days are still visible, just visibly inert.
+                    !isWorkDay && "bg-black/25",
+                    isToday(day) && "bg-accent/[0.02]",
+                  )}
+                >
+                  {/* hour lines */}
+                  {hourMarks.map((m) => (
+                    <div
+                      key={m}
+                      aria-hidden
+                      className="pointer-events-none absolute inset-x-0 border-t border-line/60"
+                      style={{
+                        top: `${((m - prefs.dayStartMin) / (prefs.dayEndMin - prefs.dayStartMin)) * 100}%`,
+                      }}
+                    />
+                  ))}
+
+                  <AnimatePresence mode="popLayout">
+                    {dayBlocks.map((p) => (
+                      <CalendarBlock
+                        key={p.block.id}
+                        positioned={p}
+                        track={tracks.find((t) => t.id === p.block.trackId)}
+                        selected={selectedBlockId === p.block.id}
+                        dimmed={
+                          Boolean(focusTrackId) && p.block.trackId !== focusTrackId
+                        }
+                        onSelect={() => selectBlock(p.block.id)}
+                        compact={days.length > 1}
+                      />
+                    ))}
+                  </AnimatePresence>
+
+                  {/* drag ghost */}
+                  {draft?.dayIndex === dayIndex && draftGeometry && (
+                    <div
+                      className="pointer-events-none absolute inset-x-1 z-20 rounded-lg border border-accent/70 bg-accent/15 backdrop-blur-sm"
+                      style={{
+                        top: `${draftGeometry.top * 100}%`,
+                        height: `${draftGeometry.height * 100}%`,
+                      }}
+                    >
+                      <span className="metric absolute left-2 top-1 text-[10px] text-accent">
+                        {formatDuration(draftGeometry.minutes)}
+                      </span>
+                    </div>
+                  )}
+
+                  {isSameDay(day, new Date()) && (
+                    <NowLine
+                      dayStartMin={prefs.dayStartMin}
+                      dayEndMin={prefs.dayEndMin}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

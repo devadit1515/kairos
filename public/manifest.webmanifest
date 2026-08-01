@@ -1,0 +1,37 @@
+{
+  "name": "Kairos — the time you actually have",
+  "short_name": "Kairos",
+  "description": "A capacity-aware calendar that tells you whether your commitments are actually possible.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#06070a",
+  "theme_color": "#06070a",
+  "orientation": "any",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Today",
+      "url": "/?view=day",
+      "description": "Jump straight to today"
+    },
+    {
+      "name": "Capture a task",
+      "url": "/?capture=1",
+      "description": "Open the quick-add palette"
+    }
+  ]
+}
