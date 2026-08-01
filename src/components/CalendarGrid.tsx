@@ -130,10 +130,19 @@ export function CalendarGrid() {
     const minuteOfDay = now.getHours() * 60 + now.getMinutes();
     const ratio =
       (minuteOfDay - prefs.dayStartMin) / (prefs.dayEndMin - prefs.dayStartMin);
-    el.scrollTop =
-      ratio > 0 && ratio < 1
-        ? Math.max(0, ratio * gridHeight - el.clientHeight / 3)
-        : 0;
+    if (ratio <= 0 || ratio >= 1) {
+      el.scrollTop = 0;
+      return;
+    }
+    /*
+     * The day headers are sticky *inside* this scroll box now, so they overlay
+     * the top of the viewport permanently. The usable height is what's left
+     * below them — measuring it off scrollHeight avoids threading yet another
+     * ref through just to read one offset.
+     */
+    const headerHeight = Math.max(0, el.scrollHeight - gridHeight);
+    const usable = Math.max(0, el.clientHeight - headerHeight);
+    el.scrollTop = Math.max(0, ratio * gridHeight - usable / 3);
   }, [days, gridHeight, prefs.dayStartMin, prefs.dayEndMin]);
 
   // Deliberately keyed on navigation alone. Including `recentre` would re-scroll
@@ -238,7 +247,7 @@ export function CalendarGrid() {
       */}
       <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto">
         <div
-          className="sticky top-0 z-sticky grid border-b border-line bg-[#0b0d12]/95 backdrop-blur-md"
+          className="sticky top-0 z-sticky grid border-b border-line bg-surface/95 backdrop-blur-md"
           style={{ gridTemplateColumns: gridTemplate }}
         >
           <div className="flex items-end justify-end pb-2 pr-2">

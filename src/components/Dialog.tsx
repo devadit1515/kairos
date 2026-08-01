@@ -37,6 +37,20 @@ export function useModalBehavior(
 ) {
   const restoreFocus = useRef<HTMLElement | null>(null);
 
+  /*
+   * Callers pass an inline arrow, so `onClose` has a new identity on every
+   * render. Depending on it directly meant the whole effect tore down and set up
+   * again each time the parent re-rendered: the focus-into-panel rAF fired again
+   * (yanking focus back mid-typing), and `restoreFocus` was overwritten with
+   * whatever was focused *inside* the panel — so closing restored focus to a
+   * node that no longer existed. Reading it through a ref keeps the effect
+   * anchored to `open` alone, which is the only thing that should re-run it.
+   */
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     if (!open) return;
 
@@ -45,7 +59,7 @@ export function useModalBehavior(
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onClose();
+        closeRef.current();
         return;
       }
       if (e.key === "Tab" && panelRef.current) {
@@ -83,7 +97,7 @@ export function useModalBehavior(
       cancelAnimationFrame(raf);
       restoreFocus.current?.focus?.();
     };
-  }, [open, onClose, panelRef]);
+  }, [open, panelRef]);
 }
 
 /**

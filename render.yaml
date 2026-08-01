@@ -8,10 +8,15 @@ services:
   - type: web
     name: kairos
     runtime: node
-    # `starter` is paid but never sleeps. The free plan spins down after
-    # inactivity and takes ~50s to cold-start, which is fatal if someone opens
-    # the link expecting a demo. Switch to `free` if that tradeoff is fine.
-    plan: starter
+    # `free` so that applying this blueprint succeeds on an account with no
+    # payment method attached — a plan the account can't pay for makes the apply
+    # fail outright, which is a worse outcome than a slow first request.
+    #
+    # The tradeoff: free services spin down after ~15 minutes of inactivity and
+    # take roughly 50 seconds to cold-start. Change this one word to `starter`
+    # (paid, never sleeps) before anything that matters — a demo, a review, a
+    # judging window — or just open the URL a minute beforehand to warm it.
+    plan: free
     region: oregon
     branch: main
     buildCommand: npm ci && npm run build

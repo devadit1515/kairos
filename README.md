@@ -7,7 +7,9 @@
 A capacity-aware calendar. It doesn't just show what you committed to —
 it works out whether it's possible, and then rebuilds your week so it is.
 
-[Deploy](DEPLOY.md) · [Engine](src/lib/scheduler.ts) · [Schema](supabase/schema.sql)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/devadit1515/kairos)
+
+[Deploy notes](DEPLOY.md) · [Engine](src/lib/scheduler.ts) · [Schema](supabase/schema.sql)
 
 </div>
 
@@ -223,8 +225,20 @@ you already relied on.
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Cloud sync | localStorage |
 | `RENDER_API_KEY` | Server-side re-planning | `/api/replan` returns 501 |
 
-Full deployment instructions, including the Supabase schema and the Render
-Workflow, are in [DEPLOY.md](DEPLOY.md).
+## Deploying
+
+The button at the top of this file opens Render with
+[`render.yaml`](render.yaml) already applied. Every variable in it is optional:
+the blueprint is set up so that applying it with all fields blank produces a
+working deployment, because the app degrades rather than failing when a
+credential is missing.
+
+It provisions on Render's **free** plan, which sleeps after about 15 minutes idle
+and takes ~50 seconds to wake. Change `plan: free` to `plan: starter` in
+`render.yaml` if it needs to stay warm.
+
+Full instructions, including the Supabase schema and the Render Workflow, are in
+[DEPLOY.md](DEPLOY.md).
 
 ## Licence
 

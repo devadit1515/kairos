@@ -96,8 +96,10 @@ export function Inspector() {
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: 24 }}
           transition={spring.smooth}
+          // Top offset is derived from the bar it sits under, rather than a
+          // magic 70px that silently breaks if the bar's height ever changes.
           className="panel-raised fixed inset-x-3 bottom-20 z-inspector max-h-[62vh] overflow-y-auto p-4
-            sm:inset-x-auto sm:right-4 sm:top-[70px] sm:bottom-4 sm:max-h-none sm:w-[320px]"
+            sm:inset-x-auto sm:right-4 sm:top-[calc(var(--topbar-height)+1rem)] sm:bottom-4 sm:max-h-none sm:w-[320px]"
           aria-label="Details"
         >
           <div className="mb-3 flex items-start justify-between gap-2">

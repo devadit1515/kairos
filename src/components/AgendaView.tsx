@@ -68,7 +68,7 @@ export function AgendaView() {
                   block rows scrolled up behind the date and the two sets of
                   glyphs overlapped into an unreadable smudge.
                 */}
-                <div className="sticky top-0 z-sticky self-start rounded-lg bg-[#0b0d12]/90 py-1 pl-0.5 backdrop-blur-sm">
+                <div className="sticky top-0 z-sticky self-start rounded-lg bg-surface/90 py-1 pl-0.5 backdrop-blur-sm">
                   <div
                     className={clsx(
                       "eyebrow",
