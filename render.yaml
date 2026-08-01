@@ -8,6 +8,9 @@ services:
   - type: web
     name: kairos
     runtime: node
+    # `starter` is paid but never sleeps. The free plan spins down after
+    # inactivity and takes ~50s to cold-start, which is fatal if someone opens
+    # the link expecting a demo. Switch to `free` if that tradeoff is fine.
     plan: starter
     region: oregon
     branch: main

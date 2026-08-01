@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "Kairos — the time you actually have. A capacity-aware calendar for students.",
+  "engines": {
+    "node": ">=20.9"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
