@@ -8,6 +8,7 @@ import { useStore, useHydrated } from "@/lib/store";
 import { TopBar } from "./TopBar";
 import { CalendarGrid } from "./CalendarGrid";
 import { AgendaView } from "./AgendaView";
+import { MonthView } from "./MonthView";
 import { CapacityPanel } from "./CapacityPanel";
 import { TaskRail } from "./TaskRail";
 import { Inspector } from "./Inspector";
@@ -89,6 +90,9 @@ export function Workspace() {
           break;
         case "w":
           setView("week");
+          break;
+        case "m":
+          setView("month");
           break;
         case "a":
           setView("agenda");
@@ -194,7 +198,13 @@ export function Workspace() {
                   exit="exit"
                   className="h-full"
                 >
-                  {view === "agenda" ? <AgendaView /> : <CalendarGrid />}
+                  {view === "agenda" ? (
+                    <AgendaView />
+                  ) : view === "month" ? (
+                    <MonthView />
+                  ) : (
+                    <CalendarGrid />
+                  )}
                 </motion.div>
               </AnimatePresence>
             </div>

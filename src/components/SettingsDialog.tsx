@@ -27,7 +27,7 @@ const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
 
 const SHORTCUTS: Array<[string, string]> = [
   ["⌘K", "Command palette"],
-  ["D / W / A", "Day, week, agenda"],
+  ["D W M A", "Day, week, month, agenda"],
   ["T", "Jump to today"],
   ["P", "Auto-plan"],
   ["I", "Ingest a document"],

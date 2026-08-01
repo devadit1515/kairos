@@ -10,13 +10,21 @@ import {
   Download,
   Undo2,
 } from "lucide-react";
-import { addDays, addWeeks, format, startOfWeek, endOfWeek, isSameMonth } from "date-fns";
+import {
+  addDays,
+  addMonths,
+  addWeeks,
+  endOfWeek,
+  format,
+  isSameMonth,
+  startOfWeek,
+} from "date-fns";
 import { clsx } from "clsx";
 import { useStore, type ViewMode } from "@/lib/store";
 import { downloadICS } from "@/lib/ics";
 import { spring } from "@/lib/motion";
 
-const VIEWS: ViewMode[] = ["day", "week", "agenda"];
+const VIEWS: ViewMode[] = ["day", "week", "month", "agenda"];
 
 export function TopBar() {
   const {
@@ -37,12 +45,16 @@ export function TopBar() {
   const anchor = new Date(anchorDate);
 
   const shift = (direction: 1 | -1) => {
+    // Each view pages by its own unit — stepping a month view by a week is the
+    // kind of small wrongness that makes navigation feel broken.
     const next =
       view === "day"
         ? addDays(anchor, direction)
-        : view === "week"
-          ? addWeeks(anchor, direction)
-          : addDays(anchor, direction * 7);
+        : view === "month"
+          ? addMonths(anchor, direction)
+          : view === "week"
+            ? addWeeks(anchor, direction)
+            : addDays(anchor, direction * 7);
     setAnchorDate(next.toISOString());
   };
 
@@ -50,6 +62,7 @@ export function TopBar() {
      "3 Mar – 9 Mar" when both ends share a month. */
   const rangeLabel = (() => {
     if (view === "day") return format(anchor, "EEEE d MMMM");
+    if (view === "month") return format(anchor, "MMMM yyyy");
     const from = startOfWeek(anchor, { weekStartsOn: 1 });
     const to = endOfWeek(anchor, { weekStartsOn: 1 });
     return isSameMonth(from, to)

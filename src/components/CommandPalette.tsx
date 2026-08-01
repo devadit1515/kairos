@@ -97,6 +97,7 @@ export function CommandPalette() {
       { id: "today", label: "Jump to today", hint: "T", icon: CalendarDays, group: "Navigate", run: () => { setAnchorDate(new Date().toISOString()); close(); } },
       { id: "day", label: "Day view", hint: "D", icon: CalendarDays, group: "Navigate", run: () => { setView("day"); close(); } },
       { id: "week", label: "Week view", hint: "W", icon: CalendarDays, group: "Navigate", run: () => { setView("week"); close(); } },
+      { id: "month", label: "Month view", hint: "M", icon: CalendarDays, group: "Navigate", run: () => { setView("month"); close(); } },
       { id: "agenda", label: "Agenda view", hint: "A", icon: Gauge, group: "Navigate", run: () => { setView("agenda"); close(); } },
       { id: "export", label: "Export to .ics", icon: Download, group: "Data", run: () => { downloadICS(blocks, tracks); toast("Exported .ics", "success"); close(); } },
       { id: "sample", label: "Load sample week", icon: FlaskConical, group: "Data", run: () => { loadSample(); close(); } },
