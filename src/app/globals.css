@@ -9,9 +9,12 @@
  * comes from 1px borders and very low-alpha fills rather than shadows, which
  * keeps the interface feeling like etched glass instead of stacked cards.
  *
- * All numerals are tabular. It is the single cheapest trick for making an
- * interface read as precise: times and durations stop shifting horizontally
- * as they change, and columns of numbers line up without any extra layout.
+ * Numerals are tabular wherever they carry meaning. It is the single cheapest
+ * trick for making an interface read as precise: times and durations stop
+ * shifting horizontally as they change, and columns of numbers line up without
+ * any extra layout. Note that this is done with the *sans* — switching to a
+ * monospace family for every number means half the interface is set in a
+ * different typeface at a different width, which reads as an accident.
  */
 
 :root {
@@ -24,7 +27,9 @@
   --accent-glow: rgba(79, 209, 255, 0.45);
   --ink: #edf1f7;
   --ink-soft: #9ba5b7;
-  --ink-faint: #5c6577;
+  /* 4.9:1 against --void. Anything darker fails WCAG AA at the sizes used. */
+  --ink-faint: #737d8f;
+  --untracked: #7c8598;
   --warn: #ffb454;
   --danger: #ff6b6b;
   --ok: #3ddc97;
@@ -32,8 +37,21 @@
   /* Height of one hour in the calendar grid. Drag maths depends on this, so it
      lives in CSS and is read back in JS rather than being duplicated. */
   --hour-height: 56px;
+  /* Width of the hour gutter, shared by the grid header and body so the two
+     can never disagree. */
+  --gutter-width: 56px;
+  /* Top bar height. Shared with the hydration skeleton so the shell and the
+     real chrome are the same height and hydration isn't a visible jump. */
+  --topbar-height: 53px;
 
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /*
+   * Tell the browser this is a dark surface. Without it, native controls
+   * (datetime-local pickers, select popups, range tracks, autofill) render in
+   * the light theme — white dropdowns punched into a near-black interface.
+   */
+  color-scheme: dark;
 }
 
 @layer base {
@@ -50,7 +68,6 @@
   body {
     background-color: var(--void);
     color: var(--ink);
-    font-feature-settings: "tnum" 1, "cv02" 1, "cv03" 1, "ss01" 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -123,6 +140,7 @@
 
   input::placeholder,
   textarea::placeholder {
+    /* Placeholders are text and need the same 4.5:1 as any other text. */
     color: var(--ink-faint);
   }
 }
@@ -140,18 +158,33 @@
       0 24px 70px -20px rgba(0, 0, 0, 0.9);
   }
 
-  /* Small uppercase label — used for every section heading and metric caption. */
+  /*
+   * Micro-label for section headings and metric captions.
+   *
+   * Kept because a dense instrument panel genuinely reads better with a small
+   * tracked label than with a scaled-down heading — this is standard product
+   * vocabulary, not the landing-page eyebrow trope. One size only; the previous
+   * `!text-[9px]` overrides scattered around were both illegible and drift.
+   */
   .eyebrow {
-    @apply font-mono text-[10px] uppercase tracking-[0.18em] text-ink-faint;
+    @apply text-micro font-medium uppercase tracking-[0.16em] text-ink-faint;
   }
 
+  /* Numbers that must line up. Sans, not mono — see the note at the top. */
   .metric {
-    @apply font-mono tabular-nums tracking-tight;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.005em;
+  }
+
+  /* Keyboard key. Was hand-rolled in six places with three different paddings. */
+  .kbd {
+    @apply inline-flex min-w-[1.25rem] items-center justify-center rounded border
+      border-line bg-black/40 px-1 py-px font-mono text-micro leading-none text-ink-faint;
   }
 
   .btn {
     @apply inline-flex select-none items-center justify-center gap-2 rounded-xl border border-line
-      bg-white/[0.03] px-3 py-2 text-sm text-ink-soft transition-all duration-150
+      bg-white/[0.03] px-3 py-2 text-dense text-ink-soft transition-all duration-150
       hover:border-lineBright hover:bg-white/[0.06] hover:text-ink
       active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40;
   }
@@ -172,12 +205,25 @@
 
   .chip {
     @apply inline-flex items-center gap-1.5 rounded-full border border-line
-      bg-white/[0.03] px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-ink-soft;
+      bg-white/[0.03] px-2 py-0.5 text-micro uppercase tracking-wider text-ink-soft;
   }
 
   .field {
-    @apply w-full rounded-xl border border-line bg-black/40 px-3 py-2 text-sm text-ink
+    @apply w-full rounded-xl border border-line bg-black/40 px-3 py-2 text-dense text-ink
       transition-colors placeholder:text-ink-faint focus:border-accent/60 focus:bg-black/60;
+  }
+
+  /*
+   * A title that reads as a heading until you touch it. Borderless at rest, but
+   * it still shows hover and focus — the previous version killed the focus
+   * border outright, which removes the only signal a keyboard user has that
+   * they are about to type into it.
+   */
+  .field-title {
+    @apply w-full rounded-lg border border-transparent bg-transparent px-1.5 py-1
+      text-lede font-medium leading-snug text-ink transition-colors
+      hover:border-line hover:bg-white/[0.03]
+      focus:border-accent/60 focus:bg-black/40;
   }
 
   /* Hairline separator that fades at both ends rather than stopping abruptly. */
@@ -190,10 +236,6 @@
       var(--line-bright) 80%,
       transparent
     );
-  }
-
-  .glow-text {
-    text-shadow: 0 0 24px var(--accent-glow);
   }
 
   /* Loading placeholder for async content. */
@@ -227,6 +269,37 @@
   .drag-none {
     -webkit-user-drag: none;
     user-select: none;
+  }
+
+  /*
+   * Expand a thin control's hit area without changing its visual size. A 1px
+   * deadline hairline is otherwise unhittable.
+   *
+   * Deliberately 8px rather than the ~21px a full 44px target would need:
+   * deadline markers are absolutely positioned on the same column, so two
+   * deadlines 20 minutes apart sit ~18px apart and any larger expansion would
+   * make their hit areas overlap — trading an unhittable control for one that
+   * activates the wrong task. The task rail and the day card both offer
+   * full-size targets for the same items.
+   */
+  .tap-expand {
+    position: relative;
+  }
+  .tap-expand::after {
+    content: "";
+    position: absolute;
+    /* Vertical only — expanding sideways would overlap the next control. */
+    inset: -8px 0;
+  }
+}
+
+/*
+ * Hover is not available on touch, so anything revealed only on hover is
+ * unreachable there. The resize grip is the one control that matters.
+ */
+@media (pointer: coarse) {
+  .grip-on-hover {
+    opacity: 1;
   }
 }
 

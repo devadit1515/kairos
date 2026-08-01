@@ -20,22 +20,60 @@ const config: Config = {
         ink: {
           DEFAULT: "#EDF1F7",
           soft: "#9BA5B7",
-          faint: "#5C6577",
+          // 4.9:1 on the near-black canvas. The previous value was 3.4:1, which
+          // failed AA for the small text it was used on almost everywhere.
+          faint: "#737D8F",
         },
+        /** Blocks and tasks with no track. Was hard-coded in five files. */
+        untracked: "#7C8598",
       },
+
+      /*
+       * Four steps, not nine.
+       *
+       * The interface previously used 9, 9.5, 10, 10.5, 11, 11.5, 12, 12.5, 13,
+       * 13.5 and 15px — differences of half a pixel that no one can perceive but
+       * which guarantee two supposedly-equal labels never match. A product UI
+       * wants a tight fixed scale (ratio ~1.1) and consistent application, not
+       * fluid type. 10px is the floor; below that it stops being readable.
+       */
+      fontSize: {
+        micro: ["0.625rem", { lineHeight: "0.8125rem", letterSpacing: "0.01em" }],
+        mini: ["0.6875rem", { lineHeight: "0.9375rem" }],
+        dense: ["0.75rem", { lineHeight: "1.0625rem" }],
+        body: ["0.8125rem", { lineHeight: "1.1875rem" }],
+        lede: ["0.9375rem", { lineHeight: "1.3125rem" }],
+      },
+
+      /*
+       * Semantic stacking order. Arbitrary z-index values (z-[35], z-[90]) are
+       * how stacking bugs get born: nothing tells you what a number is competing
+       * with. These names are the layering contract.
+       */
+      zIndex: {
+        block: "10",
+        marker: "35",
+        now: "40",
+        sticky: "45",
+        drag: "50",
+        zoom: "60",
+        inspector: "70",
+        modal: "80",
+        toast: "90",
+      },
+
       fontFamily: {
         sans: [
+          "var(--font-sans)",
           "-apple-system",
           "BlinkMacSystemFont",
           "Segoe UI",
-          "Inter",
           "system-ui",
           "sans-serif",
         ],
         mono: [
           "ui-monospace",
           "SF Mono",
-          "JetBrains Mono",
           "Menlo",
           "Consolas",
           "monospace",
