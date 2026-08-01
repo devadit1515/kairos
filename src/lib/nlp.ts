@@ -26,10 +26,16 @@ const MONTHS = [
 ];
 
 const TYPE_HINTS: Array<[RegExp, TaskType]> = [
-  [/\b(exam|final|midterm|launch|ship|demo|pitch|presentation|interview|deadline)\b/i, "milestone"],
+  [
+    /\b(exam|midterm|launch|ship|demo|pitch|presentation|interview|deadline|review\s+meeting|board\s+review|design\s+review|kickoff)\b/i,
+    "milestone",
+  ],
   [/\b(essay|paper|draft|writeup|write-up|blog|report|memo|proposal)\b/i, "writing"],
   [/\b(project|build|prototype|implement|refactor)\b/i, "project"],
-  [/\b(read|reading|research|study|review|analy[sz]e|chapter)\b/i, "research"],
+  // "review" is deliberately absent — a "board review" or "design review" is a
+  // scheduled event far more often than it is reading, and the milestone rule
+  // above should win those.
+  [/\b(read|reading|research|study|analy[sz]e|chapter|survey)\b/i, "research"],
   [/\b(invoice|expense|email|form|paperwork|admin|renew|file)\b/i, "admin"],
 ];
 
@@ -103,16 +109,34 @@ function parseDate(input: string, now: Date): { date: Date; matched: string } | 
     }
   }
 
-  // "dec 5" / "5 dec" / "december 5th"
+  // Month-first ("dec 5", "december 5th") and day-first ("5 dec",
+  // "21 March") are both extremely common — day-first is the default across
+  // most of the world, so handling only the US form silently mis-parses a
+  // large share of real documents.
+  const buildMonthDay = (monthToken: string, dayToken: string, matched: string) => {
+    const month = MONTHS.indexOf(monthToken.slice(0, 3));
+    const day = parseInt(dayToken, 10);
+    if (month < 0 || day < 1 || day > 31) return null;
+    let date = new Date(now.getFullYear(), month, day);
+    // An unqualified date that has already passed means next year.
+    if (date < startOfDay(now)) date = new Date(now.getFullYear() + 1, month, day);
+    return { date, matched };
+  };
+
   const monthFirst = lower.match(
     /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/,
   );
   if (monthFirst) {
-    const month = MONTHS.indexOf(monthFirst[1]);
-    const day = parseInt(monthFirst[2], 10);
-    let date = new Date(now.getFullYear(), month, day);
-    if (date < startOfDay(now)) date = new Date(now.getFullYear() + 1, month, day);
-    return { date, matched: monthFirst[0] };
+    const built = buildMonthDay(monthFirst[1], monthFirst[2], monthFirst[0]);
+    if (built) return built;
+  }
+
+  const dayFirst = lower.match(
+    /\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\b/,
+  );
+  if (dayFirst) {
+    const built = buildMonthDay(dayFirst[2], dayFirst[1], dayFirst[0]);
+    if (built) return built;
   }
 
   // "12/5" or "12/5/2026"

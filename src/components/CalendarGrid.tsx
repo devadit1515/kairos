@@ -32,12 +32,18 @@ export function CalendarGrid() {
     focusTrackId,
     selectBlock,
     addBlock,
+    updateBlock,
     toast,
   } = useStore();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const didAutoScroll = useRef(false);
+
+  // Vertical scale is fixed by the hour height, so it needs no measurement.
+  // Horizontal scale depends on the viewport, so it does.
+  const pxPerMinute = HOUR_HEIGHT / 60;
+  const [dayWidth, setDayWidth] = useState(0);
 
   const anchor = useMemo(() => new Date(anchorDate), [anchorDate]);
 
@@ -49,6 +55,47 @@ export function CalendarGrid() {
 
   const gridHeight =
     ((prefs.dayEndMin - prefs.dayStartMin) / 60) * HOUR_HEIGHT;
+
+  /* Track column width so a horizontal drag can move a block between days. */
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const measure = () => setDayWidth(el.clientWidth / Math.max(1, days.length));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [days.length]);
+
+  /**
+   * Commit a drag.
+   *
+   * Moving shifts both edges; resizing moves only the end. A day delta is
+   * applied as whole days so a block dragged sideways keeps its time of day,
+   * which is almost always the intent.
+   */
+  const commitDrag = useCallback(
+    (blockId: string, deltaMinutes: number, deltaDays: number, mode: "move" | "resize") => {
+      const target = blocks.find((b) => b.id === blockId);
+      if (!target) return;
+
+      const shift = (iso: string) =>
+        new Date(
+          new Date(iso).getTime() + deltaMinutes * 60000 + deltaDays * 86_400_000,
+        ).toISOString();
+
+      const patch: Partial<Block> =
+        mode === "resize"
+          ? { end: shift(target.end) }
+          : { start: shift(target.start), end: shift(target.end) };
+
+      // A hand-placed block is a decision; record it so the planner respects it.
+      if (target.auto) patch.pinned = true;
+
+      updateBlock(blockId, patch);
+    },
+    [blocks, updateBlock],
+  );
 
   const hourMarks = useMemo(() => {
     const marks: number[] = [];
@@ -102,7 +149,9 @@ export function CalendarGrid() {
   const onPointerDown = (e: React.PointerEvent, dayIndex: number) => {
     // Only primary button, and never when starting on an existing block.
     if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest("button")) return;
+    // Blocks handle their own pointer sequences and stop propagation, but guard
+    // here too so a stray hit on block chrome can't start a create-drag.
+    if ((e.target as HTMLElement).closest('button,[role="button"]')) return;
     const day = days[dayIndex];
     const at = dateFromPointer(e.clientY, day);
     dragging.current = true;
@@ -283,7 +332,12 @@ export function CalendarGrid() {
                         dimmed={
                           Boolean(focusTrackId) && p.block.trackId !== focusTrackId
                         }
+                        pxPerMinute={pxPerMinute}
+                        dayWidth={dayWidth}
                         onSelect={() => selectBlock(p.block.id)}
+                        onCommit={(dm, dd, mode) =>
+                          commitDrag(p.block.id, dm, dd, mode)
+                        }
                         compact={days.length > 1}
                       />
                     ))}

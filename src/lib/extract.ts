@@ -23,7 +23,7 @@ export interface ExtractedTask {
 
 /** Lines with no date signal are prose, not commitments. */
 const DATE_SIGNAL =
-  /\b(\d{1,2}\/\d{1,2}|\d{1,2}(st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}|today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|week\s+\d+|due|deadline|by\s+\d)/i;
+  /\b(\d{1,2}\/\d{1,2}|\d{1,2}(st|nd|rd|th)?\s+(of\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}|today|tomorrow|tmrw|mon|tues?|wed|thur?s?|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next\s+week|in\s+\d+\s+days?|week\s+\d+|due|deadline|by\s+\d)/i;
 
 /** Bullets, numbering, and table pipes carry no meaning once split. */
 function clean(line: string): string {
