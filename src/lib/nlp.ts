@@ -139,11 +139,31 @@ function parseDate(input: string, now: Date): { date: Date; matched: string } | 
     if (built) return built;
   }
 
-  // "12/5" or "12/5/2026"
+  /*
+   * "12/5" or "12/5/2026".
+   *
+   * Slash dates are genuinely ambiguous, but only sometimes. If either number
+   * is greater than 12 it can only be the day, and that case must be honoured:
+   * treating "21/09" as month 21 used to overflow into September *2027*, which
+   * is a silently wrong answer rather than a defensible guess.
+   *
+   * When both numbers are 12 or under there is no way to tell, so this settles
+   * on month-first and stays consistent about it. Written-out dates accept both
+   * orders ("21 March" and "March 21"), which is where the ambiguity actually
+   * bites people.
+   */
   const numeric = lower.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
   if (numeric) {
-    const month = parseInt(numeric[1], 10) - 1;
-    const day = parseInt(numeric[2], 10);
+    const first = parseInt(numeric[1], 10);
+    const second = parseInt(numeric[2], 10);
+
+    const dayFirstReading = first > 12 && second <= 12;
+    const month = (dayFirstReading ? second : first) - 1;
+    const day = dayFirstReading ? first : second;
+
+    // Reject the impossible instead of letting Date wrap it into another year.
+    if (month < 0 || month > 11 || day < 1 || day > 31) return null;
+
     const year = numeric[3]
       ? parseInt(numeric[3].length === 2 ? `20${numeric[3]}` : numeric[3], 10)
       : now.getFullYear();
@@ -192,17 +212,30 @@ export function parseQuickAdd(input: string, now = new Date()): ParsedQuickAdd {
   let weight: 1 | 2 | 3 = 2;
   const bang = rest.match(/(!{1,2})(?=\s|$)/);
   if (bang) {
-    weight = bang[1].length === 2 ? 3 : 3;
+    // Both branches of the ternary that used to be here returned 3. "!" and
+    // "!!" mean the same thing, because 3 is the top of the scale.
+    weight = 3;
     consume(bang[0]);
   }
   if (/\b(important|urgent|priority)\b/i.test(rest)) weight = 3;
   if (/\b(minor|optional|low)\b/i.test(rest)) weight = 1;
 
-  // Strip filler words left behind by the date/duration extraction.
+  /*
+   * Strip filler words left behind by the date/duration extraction, then repair
+   * the punctuation it orphaned. Removing "21 March" from "Board review on 21
+   * March." leaves "Board review on ." — the title needs mending, not just
+   * trimming.
+   */
   const title =
     rest
       .replace(/\b(due|by|on|at|for|before)\b/gi, " ")
       .replace(/\s+/g, " ")
+      // Pull punctuation back onto the word before it.
+      .replace(/\s+([.,;:])/g, "$1")
+      // Drop leading and trailing separators. A trailing "!" or "?" is left
+      // alone: it was already consumed above if it was a priority marker.
+      .replace(/^[\s\-–—:,.;]+/, "")
+      .replace(/[\s\-–—:,.;]+$/, "")
       .trim() || "Untitled task";
 
   let type: TaskType = "task";

@@ -1,35 +1,40 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { X } from "lucide-react";
 import { clsx } from "clsx";
 import { fade, popIn } from "@/lib/motion";
 
+const FOCUSABLE =
+  'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
 /**
- * Modal primitive.
- *
- * Hand-rolled rather than pulled from a library because the requirements are
- * small and specific: escape to close, click-outside to close, focus moved in
- * on open and restored on close, and background scroll locked. Those four
- * behaviours are what separate a dialog from a div with a backdrop.
+ * Only elements a user can actually reach. The naive selector matches hidden
+ * inputs too — this app has several (`<input type="file" class="hidden">`), and
+ * including them means Tab lands on nothing visible and the trap appears broken.
  */
-export function Dialog({
-  open,
-  onClose,
-  children,
-  labelledBy,
-  align = "center",
-  className,
-}: {
-  open: boolean;
-  onClose: () => void;
-  children: React.ReactNode;
-  labelledBy?: string;
-  align?: "center" | "top";
-  className?: string;
-}) {
-  const panelRef = useRef<HTMLDivElement>(null);
+function visibleFocusable(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    (el) => el.offsetParent !== null || el === document.activeElement,
+  );
+}
+
+/**
+ * The four behaviours that separate a dialog from a div with a backdrop:
+ * escape to close, Tab wrapped inside the panel, focus moved in on open and
+ * restored on close, and background scroll locked.
+ *
+ * Extracted as a hook because the magnified day card in the month view is also
+ * a modal surface. It previously declared `role="dialog" aria-modal="true"` and
+ * implemented none of this — so Escape did nothing and Tab walked off into the
+ * calendar behind it.
+ */
+export function useModalBehavior(
+  open: boolean,
+  onClose: () => void,
+  panelRef: RefObject<HTMLElement | null>,
+) {
   const restoreFocus = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -43,11 +48,8 @@ export function Dialog({
         onClose();
         return;
       }
-      // Minimal focus trap: wrap Tab within the panel.
       if (e.key === "Tab" && panelRef.current) {
-        const focusable = panelRef.current.querySelectorAll<HTMLElement>(
-          'a[href],button:not([disabled]),textarea,input,select,[tabindex]:not([tabindex="-1"])',
-        );
+        const focusable = visibleFocusable(panelRef.current);
         if (focusable.length === 0) return;
         const first = focusable[0];
         const last = focusable[focusable.length - 1];
@@ -65,12 +67,14 @@ export function Dialog({
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    // Defer so the panel exists before we try to focus into it.
+    // Defer so the panel exists before we try to focus into it. `data-autofocus`
+    // is queried on its own first — a single selector list resolves in document
+    // order, so the opt-in was silently losing to whichever input came earlier.
     const raf = requestAnimationFrame(() => {
-      const target = panelRef.current?.querySelector<HTMLElement>(
-        "[data-autofocus], input, textarea, button",
-      );
-      target?.focus();
+      const panel = panelRef.current;
+      if (!panel) return;
+      const preferred = panel.querySelector<HTMLElement>("[data-autofocus]");
+      (preferred ?? visibleFocusable(panel)[0])?.focus();
     });
 
     return () => {
@@ -79,14 +83,39 @@ export function Dialog({
       cancelAnimationFrame(raf);
       restoreFocus.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open, onClose, panelRef]);
+}
+
+/**
+ * Modal primitive.
+ *
+ * Hand-rolled rather than pulled from a library because the requirements are
+ * small and specific, and they all live in `useModalBehavior` above.
+ */
+export function Dialog({
+  open,
+  onClose,
+  children,
+  labelledBy,
+  align = "center",
+  className,
+}: {
+  open: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+  labelledBy?: string;
+  align?: "center" | "top";
+  className?: string;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalBehavior(open, onClose, panelRef);
 
   return (
     <AnimatePresence>
       {open && (
         <div
           className={clsx(
-            "fixed inset-0 z-[80] flex justify-center p-4",
+            "fixed inset-0 z-modal flex justify-center p-4",
             align === "top" ? "items-start pt-[12vh]" : "items-center",
           )}
         >
@@ -139,11 +168,11 @@ export function DialogHeader({
       <div className="flex items-start gap-2.5">
         {icon && <span className="mt-0.5 shrink-0">{icon}</span>}
         <div>
-          <h2 id={id} className="text-[13.5px] font-semibold tracking-tight text-ink">
+          <h2 id={id} className="text-body font-semibold tracking-tight text-ink">
             {title}
           </h2>
           {subtitle && (
-            <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-faint">
+            <p className="mt-0.5 max-w-[52ch] text-mini leading-relaxed text-ink-faint">
               {subtitle}
             </p>
           )}
