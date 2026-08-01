@@ -15,7 +15,8 @@ import { useStore } from "@/lib/store";
 import { layoutDay, offsetToDate, formatHour } from "@/lib/layout";
 import { CalendarBlock } from "./CalendarBlock";
 import { NowLine } from "./NowLine";
-import { formatDuration } from "@/lib/scheduler";
+import { DeadlineMarkers } from "./DeadlineMarkers";
+import { analyzeCapacity, formatDuration } from "@/lib/scheduler";
 import { spring } from "@/lib/motion";
 import type { Block } from "@/lib/types";
 
@@ -24,6 +25,7 @@ const HOUR_HEIGHT = 56;
 export function CalendarGrid() {
   const {
     blocks,
+    tasks,
     tracks,
     prefs,
     view,
@@ -31,6 +33,7 @@ export function CalendarGrid() {
     selectedBlockId,
     focusTrackId,
     selectBlock,
+    selectTask,
     addBlock,
     updateBlock,
     toast,
@@ -200,11 +203,12 @@ export function CalendarGrid() {
     return { top, height, minutes: Math.abs(b - a) };
   }, [draft, days, prefs.dayStartMin, prefs.dayEndMin]);
 
-  const visibleBlocks = useMemo(
-    () =>
-      focusTrackId ? blocks : blocks, // filtering is visual (dimming), not removal
-    [blocks, focusTrackId],
-  );
+  /* Deadlines are drawn on the grid, and unreachable ones are drawn in red —
+     which needs the same feasibility analysis the capacity panel runs. */
+  const atRiskIds = useMemo(() => {
+    const report = analyzeCapacity(tasks, blocks, new Date(), prefs);
+    return new Set(report.atRisk.map((o) => o.task.id));
+  }, [tasks, blocks, prefs]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -286,7 +290,7 @@ export function CalendarGrid() {
           >
             {days.map((day, dayIndex) => {
               const dayBlocks = layoutDay(
-                visibleBlocks,
+                blocks,
                 day,
                 prefs.dayStartMin,
                 prefs.dayEndMin,
@@ -357,6 +361,16 @@ export function CalendarGrid() {
                       </span>
                     </div>
                   )}
+
+                  <DeadlineMarkers
+                    tasks={tasks}
+                    tracks={tracks}
+                    day={day}
+                    dayStartMin={prefs.dayStartMin}
+                    dayEndMin={prefs.dayEndMin}
+                    atRiskIds={atRiskIds}
+                    onSelect={selectTask}
+                  />
 
                   {isSameDay(day, new Date()) && (
                     <NowLine

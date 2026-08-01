@@ -4,8 +4,10 @@
 
 **The time you actually have.**
 
-A capacity-aware calendar. It doesn't just show you what you committed to —
-it tells you whether it's *possible*, and then fixes it.
+A capacity-aware calendar. It doesn't just show what you committed to —
+it works out whether it's possible, and then rebuilds your week so it is.
+
+[Deploy](DEPLOY.md) · [Engine](src/lib/scheduler.ts) · [Schema](supabase/schema.sql)
 
 </div>
 
@@ -19,8 +21,8 @@ None of them answer the one that matters: *can I actually do it?*
 
 You end up with a wall of coloured rectangles, a list of deadlines somewhere
 else, and no arithmetic connecting the two. The gap between "committed" and
-"achievable" only becomes visible at 2am the night before, which is far too
-late for the information to be useful.
+"achievable" only becomes visible at 2am the night before — far too late for
+the information to be worth anything.
 
 Kairos closes that gap with one number:
 
@@ -28,34 +30,98 @@ Kairos closes that gap with one number:
 deficit  =  work you owe  −  time you actually have
 ```
 
-When that number goes positive, you are over-committed. Kairos says so in
-plain language, before it matters, and then rebuilds your week so it doesn't.
+When it goes positive, you are over-committed. Kairos says so in plain
+language, before it matters, and then fixes it.
 
 ## What it does
 
-**Capacity engine.** Continuously computes free time between now and every
-deadline, subtracts outstanding work, and surfaces the deficit. Feasibility is
-evaluated with earliest-deadline-first scheduling, which is provably optimal
-for this problem — so when Kairos says a deadline is unreachable, that's a
-guarantee, not a guess.
+### Capacity engine
 
-**Auto-planner.** Places focus sessions into genuinely free gaps. Respects
-working hours, working days, minimum and maximum session length, and buffer
-between sessions. Caps each task at one long session per day so work spreads
-across the week instead of collapsing into whichever gap is biggest.
+Continuously computes free time between now and every deadline, subtracts
+outstanding work, and surfaces the difference. Feasibility is evaluated with
+**earliest-deadline-first** scheduling, which is provably optimal for a single
+resource — so when Kairos says a deadline is unreachable, that's a guarantee
+rather than a heuristic guess. It's the only reason the warning is worth
+showing in red.
 
-**Paste-to-plan.** Drop in any unstructured document — a project brief, a
-syllabus, meeting notes, a contract, an email thread — and Kairos extracts
-every dated commitment with an effort estimate. Runs on Claude server-side,
-with a deterministic parser as fallback so it never hard-fails.
+### Auto-planner
 
-**Prep ladders.** Give any milestone a date and Kairos builds a ramp: sessions
-at 14, 7, 3, and 1 days out, weighted toward the deadline. Expanding intervals,
-borrowed from spaced repetition, applied to launches, reviews, and exams alike.
+Places focus sessions into genuinely free gaps. Respects working hours,
+working days, minimum and maximum session length, and buffers between
+sessions. Caps each task at one long session per day, so work spreads across
+the week instead of collapsing into whichever gap happens to be biggest.
 
-**Keyboard-first.** A command palette (`⌘K`) and natural-language capture that
-parses locally, with no network round trip — `ship v2 friday 3h !` becomes a
-weighted, dated, estimated task before you finish typing.
+When something can't be fitted, it says so and tells you by how much, rather
+than quietly dropping it.
+
+### Paste-to-plan
+
+Drop in any unstructured document — a project brief, a statement of work,
+meeting notes, a contract, an email thread — and Kairos extracts every dated
+commitment with an effort estimate, grouped into tracks.
+
+Runs on Claude with a constrained output schema, so the response shape is
+guaranteed rather than parsed hopefully. If no key is configured, or the API
+is unreachable, it falls back to a deterministic parser and labels the result
+honestly. The feature has no failure mode that ends in an error dialog.
+
+### Prep ladders
+
+Give any milestone a date and Kairos builds a ramp: sessions at 14, 7, 3 and 1
+days out, weighted toward the deadline. Expanding intervals, borrowed from
+spaced repetition, applied to launches, board reviews, certifications and
+exams alike.
+
+### Direct manipulation
+
+Drag blocks to move them, drag the grip to resize, drag sideways to change
+day. Everything snaps to quarter hours; the time label previews the
+destination while you drag. Dragging an auto-placed block pins it — moving
+something by hand is a decision, and the planner stops overwriting it.
+
+Arrow keys nudge by 15 minutes. Shift-arrow resizes. The grid never requires a
+mouse.
+
+### Keyboard-first capture
+
+`⌘K` opens a palette with subsequence matching across commands, tasks and
+blocks. Typing a task parses it locally, with no network round trip, and
+previews exactly what will be created:
+
+```
+ship v2 friday 3h !   →   Ship v2 · Fri 7 Aug 23:59 · 3h · high priority
+```
+
+Day-first and month-first dates both work, because half the world writes
+`21 March` and the other half writes `March 21`.
+
+## Keyboard reference
+
+| Key | Action |
+|---|---|
+| `⌘K` / `/` | Command palette |
+| `D` `W` `A` | Day, week, agenda |
+| `T` | Jump to today |
+| `P` | Auto-plan |
+| `I` | Ingest a document |
+| `⌘Z` / `⌘⇧Z` | Undo / redo |
+| `Esc` | Clear selection |
+| `↑` `↓` | Nudge selected block 15m |
+| `⇧↑` `⇧↓` | Resize selected block |
+
+## Cross-platform
+
+- **Installable PWA** with offline support. Navigations are network-first with
+  a cached shell; assets are stale-while-revalidate; API calls are never
+  cached. Checking what's next on a train with no signal is a core use case,
+  not an edge case.
+- **`.ics` export** (RFC 5545, properly folded and escaped) so plans reach
+  Apple Calendar, Google Calendar, Outlook, and every phone on earth.
+  Auto-planned time exports as `TENTATIVE`, so it doesn't block colleagues
+  from proposing a real meeting.
+- **Responsive** down to phone width with a dedicated pane switcher, and safe
+  area insets respected.
+- **JSON backup and restore** — your data is never hostage to one browser.
 
 ## Architecture
 
@@ -63,22 +129,34 @@ weighted, dated, estimated task before you finish typing.
 src/
   lib/
     scheduler.ts   pure capacity + planning engine — no React, no I/O
+    layout.ts      interval-graph colouring for overlapping blocks
     nlp.ts         local natural-language parser (zero-latency capture)
+    extract.ts     deterministic document extraction (the AI fallback)
+    ics.ts         RFC 5545 export
     types.ts       domain model: Track, Task, Block, Preferences
-    store.ts       state, persistence, undo
-    ics.ts         RFC 5545 export — Apple / Google / Outlook interop
-  app/
-    api/ingest     Claude-backed document extraction
+    store.ts       state, persistence, snapshot undo
+    supabase.ts    optional cloud sync — no-ops without credentials
+  app/api/
+    ingest         Claude-backed document extraction
+    replan         dispatches a Render Workflow run
   components/      calendar grid, capacity readout, palette, inspector
-workflow/          Render Workflow: nightly re-plan + drift detection
+workflow/          Render Workflows: replanUser, detectDrift, nightlySweep
 supabase/          Postgres schema with row-level security
 ```
 
-The engine is deliberately isolated from the UI. `scheduler.ts` takes
-`(tasks, blocks, now, preferences)` and returns plain data, so the identical
-code path runs in the browser, in a route handler, and inside the nightly
-Render Workflow job. `now` is always injected, never read from the ambient
-clock, which makes the whole thing deterministic and testable.
+Two decisions carry most of the weight:
+
+**The engine is isolated from the UI.** `scheduler.ts` takes
+`(tasks, blocks, now, preferences)` and returns plain data. The identical code
+path runs in the browser, in a route handler, and inside the nightly Render
+Workflow — so the plan generated at 3am agrees with the number shown at 9am.
+`now` is always injected, never read from the ambient clock, which makes the
+whole thing deterministic and testable.
+
+**Work owed and time committed are separate types.** `Task` has a deadline and
+an effort estimate; `Block` occupies a slot. Keeping them apart is what makes
+the subtraction possible at all — a calendar that models only the second one
+can tell you that you're busy, but never that you're over-committed.
 
 ## Stack
 
@@ -89,26 +167,29 @@ clock, which makes the whole thing deterministic and testable.
 | Data | Supabase — Postgres with row-level security |
 | Hosting | Render web service |
 | Jobs | Render Workflows |
-| AI | Claude (`claude-opus-5`) for document ingestion |
+| AI | Claude (`claude-opus-5`), constrained output schema |
 
 ## Running locally
 
 ```bash
 npm install
-cp .env.example .env.local   # optional — the app runs fully without any keys
 npm run dev
 ```
 
-Kairos is local-first. With no environment configured it stores everything in
-the browser and uses the deterministic parser; adding keys layers on cloud sync
-and AI extraction without changing any behaviour you've already relied on.
+That's the whole setup. Kairos is local-first: with no environment configured
+it stores everything in the browser and uses the deterministic parser. Adding
+credentials layers on cloud sync and AI extraction without changing anything
+you already relied on.
 
-| Variable | Enables | Required |
+| Variable | Enables | Without it |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | AI document ingestion | No — falls back to the local parser |
-| `NEXT_PUBLIC_SUPABASE_URL` | Cloud sync | No — falls back to local storage |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Cloud sync | No |
-| `RENDER_API_KEY` | Triggering the nightly workflow | No |
+| `ANTHROPIC_API_KEY` | AI document ingestion | Local parser |
+| `NEXT_PUBLIC_SUPABASE_URL` | Cloud sync | localStorage |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Cloud sync | localStorage |
+| `RENDER_API_KEY` | Server-side re-planning | `/api/replan` returns 501 |
+
+Full deployment instructions, including the Supabase schema and the Render
+Workflow, are in [DEPLOY.md](DEPLOY.md).
 
 ## Licence
 
