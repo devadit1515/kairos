@@ -4,7 +4,21 @@ import { useRef } from "react";
 import { Download, Keyboard, Plus, Trash2, Upload } from "lucide-react";
 import { clsx } from "clsx";
 import { useStore } from "@/lib/store";
+import dynamic from "next/dynamic";
 import { Dialog, DialogHeader } from "./Dialog";
+
+/**
+ * The Supabase client is ~65 kB and only reachable from this dialog, so it has
+ * no business in the first load. Splitting it here keeps the calendar — the
+ * thing people actually wait for — lean.
+ */
+const SyncPanel = dynamic(
+  () => import("./SyncPanel").then((m) => m.SyncPanel),
+  {
+    ssr: false,
+    loading: () => <div className="skeleton h-20 w-full" />,
+  },
+);
 import { downloadICS, downloadJSON } from "@/lib/ics";
 import { colorOf, TRACK_COLORS } from "@/lib/types";
 import { formatDuration } from "@/lib/scheduler";
@@ -244,6 +258,10 @@ export function SettingsDialog() {
             ))}
           </ul>
         </section>
+
+        <div className="rule" />
+
+        <SyncPanel />
 
         <div className="rule" />
 
