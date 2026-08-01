@@ -1,0 +1,21 @@
+{
+  "name": "kairos-workflow",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Render Workflow: nightly re-plan and capacity drift detection for Kairos.",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/workflow/src/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@renderinc/sdk": "^0.5.0",
+    "@supabase/supabase-js": "^2.45.4",
+    "date-fns": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3"
+  }
+}

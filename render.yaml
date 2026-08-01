@@ -1,0 +1,41 @@
+# Render blueprint for Kairos.
+#
+# The web service deploys straight from this file. Workflows are provisioned
+# separately in the dashboard (New → Workflow) because they aren't yet a
+# blueprint resource type — the exact steps are in DEPLOY.md.
+
+services:
+  - type: web
+    name: kairos
+    runtime: node
+    plan: starter
+    region: oregon
+    branch: main
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Next reads PORT automatically; Render sets it at runtime.
+      - key: NODE_ENV
+        value: production
+
+      # ---- optional: AI ingestion -------------------------------------
+      # Without this the /api/ingest route falls back to the deterministic
+      # parser rather than failing, so the app deploys fine unset.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+      # ---- optional: cloud sync ---------------------------------------
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+
+      # ---- optional: triggering the nightly workflow from the app -----
+      - key: RENDER_API_KEY
+        sync: false
+      - key: KAIROS_WORKFLOW_SLUG
+        value: kairos-workflow

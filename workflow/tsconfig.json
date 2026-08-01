@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    // node16 (rather than plain "node") is required to resolve the SDK's
+    // "./workflows" subpath export. package.json is type:commonjs, so this
+    // still emits CJS and relative imports stay extensionless.
+    "module": "node16",
+    "moduleResolution": "node16",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    // rootDir sits at the repo root so the shared engine in ../src/lib compiles
+    // alongside the worker rather than being duplicated. Output mirrors that
+    // structure, hence dist/workflow/src/index.js as the entry point.
+    "rootDir": "..",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts", "../src/lib/scheduler.ts", "../src/lib/types.ts"]
+}
