@@ -72,6 +72,24 @@ days out, weighted toward the deadline. Expanding intervals, borrowed from
 spaced repetition, applied to launches, board reviews, certifications and
 exams alike.
 
+### Four views, one of which does something new
+
+Day and week are the grid you already know. Agenda is a linear read of the
+fortnight with per-day free totals.
+
+**Month** is the familiar Google/Apple shape plus the thing those views never
+show: how full each day actually *is*. A conventional month cell only lists
+events, so a day with three fifteen-minute calls looks identical to a day with
+three four-hour blocks. Every cell here carries a capacity bar and a load tint,
+so you can scan a month and see where the pressure is rather than just where
+the appointments are. Pills are coloured by track — a month scan answers "which
+project is eating this fortnight".
+
+Clicking a day lifts it out of the grid into a magnified card: it rises on the
+Z axis with a slight rotation that settles flat, so the cell you clicked
+visibly *becomes* the detail view instead of a modal appearing from nowhere.
+Suppressed under `prefers-reduced-motion`.
+
 ### Direct manipulation
 
 Drag blocks to move them, drag the grip to resize, drag sideways to change
@@ -100,7 +118,7 @@ Day-first and month-first dates both work, because half the world writes
 | Key | Action |
 |---|---|
 | `⌘K` / `/` | Command palette |
-| `D` `W` `A` | Day, week, agenda |
+| `D` `W` `M` `A` | Day, week, month, agenda |
 | `T` | Jump to today |
 | `P` | Auto-plan |
 | `I` | Ingest a document |
