@@ -21,6 +21,12 @@ import { fade } from "@/lib/motion";
 
 type MobilePane = "plan" | "calendar" | "tasks";
 
+const PANES = [
+  ["plan", Gauge, "Capacity"],
+  ["calendar", CalendarDays, "Calendar"],
+  ["tasks", ListTodo, "Tasks"],
+] as const;
+
 export function Workspace() {
   const hydrated = useHydrated();
   const {
@@ -28,6 +34,8 @@ export function Workspace() {
     tasks,
     blocks,
     paletteOpen,
+    ingestOpen,
+    settingsOpen,
     setPaletteOpen,
     setIngestOpen,
     setSettingsOpen,
@@ -41,6 +49,11 @@ export function Workspace() {
   } = useStore();
 
   const [pane, setPane] = useState<MobilePane>("calendar");
+
+  // A dialog is a modal context: single-letter shortcuts must not reach through
+  // it. Without this, pressing P behind the settings sheet silently re-planned
+  // the week, and D/W/M switched the view under a dialog nobody had closed.
+  const modalOpen = paletteOpen || ingestOpen || settingsOpen;
 
   /**
    * Global keyboard map.
@@ -60,11 +73,16 @@ export function Workspace() {
 
       const mod = e.metaKey || e.ctrlKey;
 
+      // ⌘K stays live so the palette can be summoned from anywhere, including
+      // from inside another dialog.
       if (mod && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen(true);
         return;
       }
+
+      if (modalOpen) return;
+
       if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) {
         if (typing) return;
         e.preventDefault();
@@ -118,6 +136,7 @@ export function Workspace() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [
+    modalOpen,
     setPaletteOpen,
     setIngestOpen,
     setSettingsOpen,
@@ -138,12 +157,13 @@ export function Workspace() {
   }, [setView, setPaletteOpen]);
 
   // Until the persisted store rehydrates, render a matching shell rather than
-  // real data — otherwise the server and client markup disagree.
+  // real data — otherwise the server and client markup disagree. The shell has
+  // to mirror the real layout exactly, or hydration lands as a visible jump.
   if (!hydrated) {
     return (
       <div className="flex h-dvh flex-col">
-        <div className="h-[53px] shrink-0 border-b border-line" />
-        <div className="grid flex-1 gap-3 p-3 lg:grid-cols-[340px_1fr]">
+        <div className="h-[var(--topbar-height)] shrink-0 border-b border-line" />
+        <div className="grid flex-1 gap-3 p-3 lg:grid-cols-[340px_minmax(0,1fr)]">
           <div className="skeleton hidden lg:block" />
           <div className="skeleton" />
         </div>
@@ -158,7 +178,9 @@ export function Workspace() {
       <TopBar />
 
       {isEmpty ? (
-        <EmptyState />
+        <main className="flex min-h-0 flex-1 flex-col">
+          <EmptyState />
+        </main>
       ) : (
         <>
           <main className="grid min-h-0 flex-1 gap-3 p-3 lg:grid-cols-[340px_minmax(0,1fr)]">
@@ -215,19 +237,14 @@ export function Workspace() {
             className="flex shrink-0 items-center justify-around border-t border-line bg-black/40 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden"
             aria-label="Sections"
           >
-            {(
-              [
-                ["plan", Gauge, "Capacity"],
-                ["calendar", CalendarDays, "Calendar"],
-                ["tasks", ListTodo, "Tasks"],
-              ] as const
-            ).map(([key, Icon, label]) => (
+            {PANES.map(([key, Icon, label]) => (
               <button
                 key={key}
                 onClick={() => setPane(key)}
-                aria-current={pane === key}
+                aria-current={pane === key ? "true" : undefined}
+                // min-h-[44px] so the tap target clears the platform minimum.
                 className={clsx(
-                  "relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] transition-colors",
+                  "relative flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 py-2 text-micro transition-colors",
                   pane === key ? "text-accent" : "text-ink-faint",
                 )}
               >
@@ -237,7 +254,7 @@ export function Workspace() {
                     className="absolute inset-x-6 top-0 h-px bg-accent"
                   />
                 )}
-                <Icon size={17} />
+                <Icon size={17} aria-hidden />
                 {label}
               </button>
             ))}

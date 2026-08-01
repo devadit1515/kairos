@@ -3,7 +3,15 @@
 import { useCallback, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { format } from "date-fns";
-import { Check, FileText, Loader2, Sparkles, Upload, Zap } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  FileText,
+  Loader2,
+  Sparkles,
+  Upload,
+  Zap,
+} from "lucide-react";
 import { clsx } from "clsx";
 import { useStore, uid } from "@/lib/store";
 import { Dialog, DialogHeader } from "./Dialog";
@@ -13,6 +21,36 @@ import { riseIn, staggerParent } from "@/lib/motion";
 import type { ExtractedTask } from "@/lib/extract";
 
 type Stage = "input" | "working" | "review";
+
+/**
+ * The route clamps at 60k characters. Saying so up front beats silently
+ * truncating a 400kB paste and letting someone wonder why half their document
+ * was ignored.
+ */
+const MAX_CHARS = 60_000;
+
+/**
+ * Files are read as text, so a PDF or a .docx arrives as replacement characters
+ * and mojibake. Detecting that is cheap: real text does not contain NUL bytes,
+ * and a healthy sample has very few unprintable ones.
+ */
+function looksBinary(text: string): boolean {
+  const sample = text.slice(0, 2000);
+  if (sample.length === 0) return false;
+
+  let control = 0;
+  for (let i = 0; i < sample.length; i++) {
+    const code = sample.charCodeAt(i);
+    // Tab, newline and carriage return are the only control codes real text has.
+    if (code === 9 || code === 10 || code === 13) continue;
+    if (code < 32 || code === 127) control++;
+    // A replacement character means the decoder already gave up on these bytes.
+    if (code === 0xfffd) control++;
+  }
+  // Counting control codes rather than "characters I don't recognise" matters:
+  // the naive version flags perfectly good Arabic, Devanagari or emoji text.
+  return control / sample.length > 0.02;
+}
 
 const PLACEHOLDER = `Paste anything with dates in it — a project brief, a syllabus, a statement of work, meeting notes, a contract, an email thread.
 
@@ -32,9 +70,15 @@ export function IngestDialog() {
     tasks: ExtractedTask[];
   } | null>(null);
   const [chosen, setChosen] = useState<Set<number>>(new Set());
+  const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  // Kept so the request can actually be abandoned. A model call behind a
+  // spinner with no way out is a trap, not a loading state.
+  const inflight = useRef<AbortController | null>(null);
 
   const close = () => {
+    inflight.current?.abort();
+    inflight.current = null;
     setIngestOpen(false);
     // Reset a beat later so the dialog doesn't visibly rewind while animating out.
     setTimeout(() => {
@@ -42,37 +86,80 @@ export function IngestDialog() {
       setText("");
       setResult(null);
       setChosen(new Set());
+      setError(null);
     }, 200);
+  };
+
+  const cancel = () => {
+    inflight.current?.abort();
+    inflight.current = null;
+    setStage("input");
   };
 
   const extract = useCallback(async () => {
     if (!text.trim()) return;
+
+    const controller = new AbortController();
+    inflight.current = controller;
+    setError(null);
     setStage("working");
+
     try {
       const res = await fetch("/api/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
-          text,
+          text: text.slice(0, MAX_CHARS),
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? "Extraction failed");
+      if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`);
 
       setResult(data);
       setChosen(new Set(data.tasks.map((_: unknown, i: number) => i)));
       setStage("review");
     } catch (err) {
-      console.error(err);
-      toast("Extraction failed — check the console", "danger");
+      // A deliberate cancellation is not a failure and must not be reported as one.
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      /*
+       * Say what went wrong, in the dialog, next to the thing that failed.
+       * "Extraction failed — check the console" told a non-developer nothing and
+       * asked them to open a tool they have never heard of.
+       */
+      const message =
+        err instanceof TypeError
+          ? "No connection. Extraction needs the network; everything else in Kairos works offline."
+          : err instanceof Error
+            ? err.message
+            : "Extraction failed for an unknown reason.";
+      setError(message);
       setStage("input");
+    } finally {
+      inflight.current = null;
     }
-  }, [text, toast]);
+  }, [text]);
 
   const readFile = (file: File) => {
     const reader = new FileReader();
-    reader.onload = () => setText(String(reader.result ?? ""));
+    reader.onerror = () => setError(`Couldn't read ${file.name}.`);
+    reader.onload = () => {
+      const contents = String(reader.result ?? "");
+      if (looksBinary(contents)) {
+        setError(
+          `${file.name} isn't plain text. Export it as .txt or .md, or paste the text directly.`,
+        );
+        return;
+      }
+      setError(null);
+      if (contents.length > MAX_CHARS) {
+        setError(
+          `${file.name} is longer than ${MAX_CHARS.toLocaleString()} characters — only the first part will be read.`,
+        );
+      }
+      setText(contents.slice(0, MAX_CHARS));
+    };
     reader.readAsText(file);
   };
 
@@ -176,10 +263,23 @@ export function IngestDialog() {
                 if (file) readFile(file);
               }}
               className={clsx(
-                "relative min-h-0 flex-1 p-4 transition-colors",
+                "relative min-h-0 flex-1 space-y-2 p-4 transition-colors",
                 dragOver && "bg-accent/[0.06]",
               )}
             >
+              {error && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 rounded-xl border border-danger/30 bg-danger/[0.07] px-3 py-2"
+                >
+                  <AlertTriangle
+                    size={12}
+                    aria-hidden
+                    className="mt-0.5 shrink-0 text-danger"
+                  />
+                  <p className="text-mini leading-relaxed text-ink-soft">{error}</p>
+                </div>
+              )}
               <textarea
                 data-autofocus
                 value={text}
@@ -190,7 +290,7 @@ export function IngestDialog() {
               />
               {dragOver && (
                 <div className="pointer-events-none absolute inset-4 flex items-center justify-center rounded-xl border-2 border-dashed border-accent/60 bg-void/80">
-                  <span className="text-[12px] text-accent">Drop to read the file</span>
+                  <span className="text-dense text-accent">Drop to read the file</span>
                 </div>
               )}
             </div>
@@ -208,22 +308,29 @@ export function IngestDialog() {
               />
               <button
                 onClick={() => fileInput.current?.click()}
-                className="btn !px-2.5 !py-1.5 text-xs"
+                className="btn !px-2.5 !py-1.5 text-dense"
               >
                 <Upload size={13} />
                 File
               </button>
-              <span className="metric text-[10px] text-ink-faint">
+              <span
+                className={clsx(
+                  "metric text-micro",
+                  text.length > MAX_CHARS ? "text-warn" : "text-ink-faint",
+                )}
+              >
                 {text.length.toLocaleString()} chars
+                {text.length > MAX_CHARS &&
+                  ` · first ${MAX_CHARS.toLocaleString()} will be read`}
               </span>
               <div className="flex-1" />
-              <button onClick={close} className="btn btn-ghost text-xs">
+              <button onClick={close} className="btn btn-ghost text-dense">
                 Cancel
               </button>
               <button
                 onClick={extract}
                 disabled={!text.trim()}
-                className="btn btn-accent text-xs"
+                className="btn btn-accent text-dense"
               >
                 <Sparkles size={13} />
                 Extract
@@ -240,12 +347,18 @@ export function IngestDialog() {
             exit={{ opacity: 0 }}
             className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-16"
           >
-            <Loader2 size={22} className="animate-spin text-accent" />
-            <p className="text-[12.5px] text-ink-soft">Reading the document…</p>
-            <p className="max-w-xs text-center text-[11px] leading-relaxed text-ink-faint">
+            <Loader2 size={22} className="animate-spin text-accent" aria-hidden />
+            <p className="text-dense text-ink-soft" role="status">
+              Reading the document…
+            </p>
+            <p className="max-w-xs text-center text-mini leading-relaxed text-ink-faint">
               Pulling out dated commitments, estimating effort, and grouping them
               into tracks.
             </p>
+            {/* A model call can take a while. Waiting should always be optional. */}
+            <button onClick={cancel} className="btn btn-ghost mt-1 text-dense">
+              Cancel
+            </button>
           </motion.div>
         )}
 
@@ -276,7 +389,7 @@ export function IngestDialog() {
                   </>
                 )}
               </span>
-              <span className="text-[11px] text-ink-faint">
+              <span className="text-mini text-ink-faint">
                 {result.tasks.length} found
                 {result.source === "heuristic" &&
                   result.reason === "no_api_key" &&
@@ -287,8 +400,8 @@ export function IngestDialog() {
             {result.tasks.length === 0 ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-14 text-center">
                 <FileText size={20} className="text-ink-faint" />
-                <p className="text-[12.5px] text-ink-soft">No dated commitments found.</p>
-                <p className="max-w-xs text-[11px] leading-relaxed text-ink-faint">
+                <p className="text-dense text-ink-soft">No dated commitments found.</p>
+                <p className="max-w-xs text-mini leading-relaxed text-ink-faint">
                   The document may not contain explicit deadlines. Try pasting a
                   section that lists dates.
                 </p>
@@ -331,7 +444,7 @@ export function IngestDialog() {
                           {on && <Check size={11} strokeWidth={3} />}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-[12.5px] text-ink">
+                          <div className="truncate text-dense text-ink">
                             {t.title}
                           </div>
                           <div className="mt-1 flex flex-wrap items-center gap-1">
@@ -365,21 +478,21 @@ export function IngestDialog() {
                       : new Set(result.tasks.map((_, i) => i)),
                   )
                 }
-                className="btn btn-ghost text-xs"
+                className="btn btn-ghost text-dense"
               >
                 {chosen.size === result.tasks.length ? "None" : "All"}
               </button>
-              <span className="metric text-[10.5px] text-ink-faint">
+              <span className="metric text-mini text-ink-faint">
                 {chosen.size} selected · {formatDuration(totalEffort)} of work
               </span>
               <div className="flex-1" />
-              <button onClick={() => setStage("input")} className="btn btn-ghost text-xs">
+              <button onClick={() => setStage("input")} className="btn btn-ghost text-dense">
                 Back
               </button>
               <button
                 onClick={commit}
                 disabled={chosen.size === 0}
-                className="btn btn-accent text-xs"
+                className="btn btn-accent text-dense"
               >
                 Import {chosen.size > 0 ? chosen.size : ""}
               </button>

@@ -12,15 +12,18 @@ import {
 } from "date-fns";
 import { clsx } from "clsx";
 import { useStore } from "@/lib/store";
+import { useAtRiskIds } from "@/lib/capacity";
 import { layoutDay, offsetToDate, formatHour } from "@/lib/layout";
 import { CalendarBlock } from "./CalendarBlock";
 import { NowLine } from "./NowLine";
 import { DeadlineMarkers } from "./DeadlineMarkers";
-import { analyzeCapacity, formatDuration } from "@/lib/scheduler";
+import { formatDuration } from "@/lib/scheduler";
 import { spring } from "@/lib/motion";
 import type { Block } from "@/lib/types";
 
 const HOUR_HEIGHT = 56;
+/** Kept in sync with `--gutter-width`; used for both grid templates. */
+const GUTTER = "var(--gutter-width)";
 
 export function CalendarGrid() {
   const {
@@ -35,13 +38,12 @@ export function CalendarGrid() {
     selectBlock,
     selectTask,
     addBlock,
-    updateBlock,
     toast,
+    updateBlock,
   } = useStore();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const didAutoScroll = useRef(false);
 
   // Vertical scale is fixed by the hour height, so it needs no measurement.
   // Horizontal scale depends on the viewport, so it does.
@@ -56,6 +58,7 @@ export function CalendarGrid() {
     return Array.from({ length: 7 }, (_, i) => addDays(first, i));
   }, [anchor, view]);
 
+  const gridTemplate = `${GUTTER} repeat(${days.length}, minmax(0,1fr))`;
   const gridHeight =
     ((prefs.dayEndMin - prefs.dayStartMin) / 60) * HOUR_HEIGHT;
 
@@ -108,22 +111,38 @@ export function CalendarGrid() {
     return marks;
   }, [prefs.dayStartMin, prefs.dayEndMin]);
 
-  /* Scroll so "now" sits about a third down the viewport — the most useful
-     default position, since you care more about what's ahead than behind. */
-  useEffect(() => {
-    if (didAutoScroll.current || !scrollRef.current) return;
+  /**
+   * Scroll so "now" sits about a third down the viewport — the most useful
+   * default position, since you care more about what's ahead than behind.
+   *
+   * This runs on every explicit navigation, not once per mount. It used to be
+   * latched behind a `didAutoScroll` ref, which meant pressing T to jump to
+   * today did nothing visible once you had scrolled away.
+   */
+  const recentre = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (!days.some((d) => isToday(d))) {
+      el.scrollTop = 0;
+      return;
+    }
     const now = new Date();
     const minuteOfDay = now.getHours() * 60 + now.getMinutes();
     const ratio =
       (minuteOfDay - prefs.dayStartMin) / (prefs.dayEndMin - prefs.dayStartMin);
-    if (ratio > 0 && ratio < 1) {
-      scrollRef.current.scrollTop = Math.max(
-        0,
-        ratio * gridHeight - scrollRef.current.clientHeight / 3,
-      );
-    }
-    didAutoScroll.current = true;
-  }, [gridHeight, prefs.dayStartMin, prefs.dayEndMin]);
+    el.scrollTop =
+      ratio > 0 && ratio < 1
+        ? Math.max(0, ratio * gridHeight - el.clientHeight / 3)
+        : 0;
+  }, [days, gridHeight, prefs.dayStartMin, prefs.dayEndMin]);
+
+  // Deliberately keyed on navigation alone. Including `recentre` would re-scroll
+  // while someone drags a working-hours slider, yanking the view out from under
+  // them for a change that has nothing to do with where they are looking.
+  useEffect(() => {
+    recentre();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchorDate, view]);
 
   // ---- drag to create ------------------------------------------------------
   const [draft, setDraft] = useState<{
@@ -204,66 +223,61 @@ export function CalendarGrid() {
   }, [draft, days, prefs.dayStartMin, prefs.dayEndMin]);
 
   /* Deadlines are drawn on the grid, and unreachable ones are drawn in red —
-     which needs the same feasibility analysis the capacity panel runs. */
-  const atRiskIds = useMemo(() => {
-    const report = analyzeCapacity(tasks, blocks, new Date(), prefs);
-    return new Set(report.atRisk.map((o) => o.task.id));
-  }, [tasks, blocks, prefs]);
+     from the same shared report the capacity panel reads. */
+  const atRiskIds = useAtRiskIds();
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* ---- day headers ---- */}
-      <div
-        className="grid shrink-0 border-b border-line pr-[10px]"
-        style={{ gridTemplateColumns: `56px repeat(${days.length}, minmax(0,1fr))` }}
-      >
-        <div className="flex items-end justify-end pb-2 pr-2">
-          <span className="eyebrow">{format(anchor, "MMM")}</span>
-        </div>
-        {days.map((day) => {
-          const today = isToday(day);
-          return (
-            <div
-              key={day.toISOString()}
-              className="relative flex flex-col items-center gap-0.5 py-2"
-            >
-              <span
-                className={clsx(
-                  "eyebrow transition-colors",
-                  today && "!text-accent",
-                )}
-              >
-                {format(day, "EEE")}
-              </span>
-              <span
-                className={clsx(
-                  "metric flex h-7 w-7 items-center justify-center rounded-full text-sm transition-colors",
-                  today ? "bg-accent font-semibold text-void" : "text-ink-soft",
-                )}
-              >
-                {format(day, "d")}
-              </span>
-              {today && (
-                <motion.span
-                  layoutId="today-underline"
-                  transition={spring.smooth}
-                  className="absolute inset-x-3 bottom-0 h-px bg-accent"
-                  style={{ boxShadow: "0 0 12px var(--accent-glow)" }}
-                />
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* ---- scrollable body ---- */}
+      {/*
+        The day headers live *inside* the scroll container as a sticky row.
+        Keeping them outside meant compensating for the scrollbar with a
+        hard-coded 10px of padding, which was wrong on macOS (overlay scrollbars
+        are 0px) and wrong again whenever the thin-scrollbar rule applied — the
+        header columns simply didn't line up with the day columns. Sharing one
+        scroll box makes the alignment structural instead of guessed.
+      */}
       <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto">
         <div
+          className="sticky top-0 z-sticky grid border-b border-line bg-[#0b0d12]/95 backdrop-blur-md"
+          style={{ gridTemplateColumns: gridTemplate }}
+        >
+          <div className="flex items-end justify-end pb-2 pr-2">
+            <span className="eyebrow">{format(anchor, "MMM")}</span>
+          </div>
+          {days.map((day) => {
+            const today = isToday(day);
+            return (
+              <div
+                key={day.toISOString()}
+                className="relative flex flex-col items-center gap-0.5 py-2"
+              >
+                <span className={clsx("eyebrow", today && "!text-accent")}>
+                  {format(day, "EEE")}
+                </span>
+                <span
+                  className={clsx(
+                    "metric flex h-7 w-7 items-center justify-center rounded-full text-sm transition-colors",
+                    today ? "bg-accent font-semibold text-void" : "text-ink-soft",
+                  )}
+                >
+                  {format(day, "d")}
+                </span>
+                {today && (
+                  <motion.span
+                    layoutId="today-underline"
+                    transition={spring.smooth}
+                    className="absolute inset-x-3 bottom-0 h-px bg-accent"
+                    style={{ boxShadow: "0 0 12px var(--accent-glow)" }}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div
           className="grid"
-          style={{
-            gridTemplateColumns: `56px repeat(${days.length}, minmax(0,1fr))`,
-            height: gridHeight,
-          }}
+          style={{ gridTemplateColumns: gridTemplate, height: gridHeight }}
         >
           {/* hour gutter */}
           <div className="relative border-r border-line">
@@ -275,7 +289,7 @@ export function CalendarGrid() {
                   top: `${((m - prefs.dayStartMin) / (prefs.dayEndMin - prefs.dayStartMin)) * 100}%`,
                 }}
               >
-                <span className="metric text-[10px] text-ink-faint">
+                <span className="metric text-micro text-ink-faint">
                   {formatHour(m)}
                 </span>
               </div>
@@ -350,13 +364,13 @@ export function CalendarGrid() {
                   {/* drag ghost */}
                   {draft?.dayIndex === dayIndex && draftGeometry && (
                     <div
-                      className="pointer-events-none absolute inset-x-1 z-20 rounded-lg border border-accent/70 bg-accent/15 backdrop-blur-sm"
+                      className="pointer-events-none absolute inset-x-1 z-drag rounded-lg border border-accent/70 bg-accent/15 backdrop-blur-sm"
                       style={{
                         top: `${draftGeometry.top * 100}%`,
                         height: `${draftGeometry.height * 100}%`,
                       }}
                     >
-                      <span className="metric absolute left-2 top-1 text-[10px] text-accent">
+                      <span className="metric absolute left-2 top-1 text-micro text-accent">
                         {formatDuration(draftGeometry.minutes)}
                       </span>
                     </div>

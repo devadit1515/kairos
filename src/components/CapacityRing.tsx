@@ -100,7 +100,7 @@ export function CapacityRing({
           {label}
         </span>
         {sublabel && (
-          <span className="eyebrow mt-1 !text-[9px]">{sublabel}</span>
+          <span className="eyebrow mt-1">{sublabel}</span>
         )}
       </div>
     </div>

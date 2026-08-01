@@ -1,10 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   addDays,
-  addMonths,
   format,
   isSameDay,
   isSameMonth,
@@ -16,8 +15,8 @@ import {
 import { clsx } from "clsx";
 import { Flag, X } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { useAtRiskIds } from "@/lib/capacity";
 import {
-  analyzeCapacity,
   formatDuration,
   freeSlots,
   minutesBetween,
@@ -25,6 +24,7 @@ import {
 } from "@/lib/scheduler";
 import { colorOf, type Block, type Task, type Track } from "@/lib/types";
 import { riseIn, staggerParent } from "@/lib/motion";
+import { useModalBehavior } from "./Dialog";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MAX_PILLS = 3;
@@ -41,6 +41,13 @@ interface DayCell {
   isWorkDay: boolean;
 }
 
+/** Where the magnified card should appear to come from. */
+interface ZoomOrigin {
+  iso: string;
+  dx: number;
+  dy: number;
+}
+
 /**
  * Month view.
  *
@@ -50,8 +57,8 @@ interface DayCell {
  * four-hour blocks. The capacity bar under each date fixes that — you can scan
  * a month and see where the pressure is, not just where the appointments are.
  *
- * Clicking a day lifts it out of the grid into a magnified card via a shared
- * layout transition, so the cell you clicked visibly becomes the detail view
+ * Clicking a day lifts it out of the grid into a magnified card that rises from
+ * the cell you actually clicked, so the cell visibly *becomes* the detail view
  * rather than a modal appearing from nowhere.
  */
 export function MonthView() {
@@ -69,20 +76,17 @@ export function MonthView() {
   } = useStore();
 
   const reduce = useReducedMotion();
-  const [zoomed, setZoomed] = useState<string | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState<ZoomOrigin | null>(null);
 
   const anchor = useMemo(() => new Date(anchorDate), [anchorDate]);
-
-  const atRiskIds = useMemo(() => {
-    const report = analyzeCapacity(tasks, blocks, new Date(), prefs);
-    return new Set(report.atRisk.map((o) => o.task.id));
-  }, [tasks, blocks, prefs]);
+  const atRiskIds = useAtRiskIds();
 
   /* Six weeks always — a fixed grid height stops the layout jumping as you
      page through months, which is far more distracting than one blank row. */
   const cells = useMemo<DayCell[]>(() => {
     const gridStart = startOfWeek(startOfMonth(anchor), { weekStartsOn: 1 });
-    const window = prefs.dayEndMin - prefs.dayStartMin;
+    const workingWindowMin = prefs.dayEndMin - prefs.dayStartMin;
 
     return Array.from({ length: 42 }, (_, i) => {
       const date = addDays(gridStart, i);
@@ -115,55 +119,62 @@ export function MonthView() {
         deadlines,
         freeMin,
         committedMin,
-        load: window > 0 ? Math.min(1.4, committedMin / window) : 0,
+        load:
+          workingWindowMin > 0
+            ? Math.min(1.4, committedMin / workingWindowMin)
+            : 0,
         isWorkDay,
       };
     });
   }, [anchor, blocks, tasks, prefs]);
 
-  const zoomedCell = cells.find(
-    (c) => zoomed && isSameDay(c.date, new Date(zoomed)),
-  );
+  const zoomedCell = zoom
+    ? cells.find((c) => c.date.toISOString() === zoom.iso)
+    : undefined;
+
+  /**
+   * Measure the clicked cell against the grid so the card can animate out of
+   * its actual position. Reading two rects on a click is cheap; the previous
+   * approach put a `layoutId` on all 42 cells, which enrolled every one of them
+   * in the layout projection tree on every render and animated nothing, because
+   * no element on the other side shared the id.
+   */
+  const openZoom = (cell: DayCell, el: HTMLElement) => {
+    const grid = gridRef.current?.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
+    setZoom({
+      iso: cell.date.toISOString(),
+      dx: grid ? rect.left + rect.width / 2 - (grid.left + grid.width / 2) : 0,
+      dy: grid ? rect.top + rect.height / 2 - (grid.top + grid.height / 2) : 0,
+    });
+  };
+
+  const openDay = (date: Date) => {
+    setAnchorDate(date.toISOString());
+    setView("day");
+    setZoom(null);
+  };
 
   return (
     // `relative` anchors the magnified day card, which is positioned against
     // this container rather than the viewport so it stays inside the panel.
-    <div className="relative flex h-full min-h-0 flex-col">
-      {/* ---- month header ---- */}
-      <div className="flex shrink-0 items-center justify-between px-3 py-2 sm:px-4">
-        <h2 className="metric text-[13px] text-ink">{format(anchor, "MMMM yyyy")}</h2>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setAnchorDate(addMonths(anchor, -1).toISOString())}
-            className="btn btn-ghost !px-2 !py-1 text-[11px]"
-          >
-            Prev
-          </button>
-          <button
-            onClick={() => setAnchorDate(addMonths(anchor, 1).toISOString())}
-            className="btn btn-ghost !px-2 !py-1 text-[11px]"
-          >
-            Next
-          </button>
-        </div>
-      </div>
-
-      {/* ---- weekday header ---- */}
-      <div className="grid shrink-0 grid-cols-7 border-y border-line">
+    <div ref={gridRef} className="relative flex h-full min-h-0 flex-col">
+      {/* Weekday header. Month name and paging live in the top bar — repeating
+          them here meant two different controls for one job, which is how a
+          "Next" button ends up disagreeing with a chevron. */}
+      <div className="grid shrink-0 grid-cols-7 border-b border-line">
         {WEEKDAYS.map((d) => (
-          <div key={d} className="py-1.5 text-center">
+          <div key={d} className="py-2 text-center">
             <span className="eyebrow">{d}</span>
           </div>
         ))}
       </div>
 
-      {/* ---- grid ---- */}
       <motion.div
         variants={staggerParent(0.006)}
         initial="hidden"
         animate="visible"
         className="grid min-h-0 flex-1 grid-cols-7 grid-rows-6"
-        style={{ perspective: 1400 }}
       >
         {cells.map((cell) => (
           <MonthCell
@@ -172,37 +183,30 @@ export function MonthView() {
             tracks={tracks}
             atRiskIds={atRiskIds}
             focusTrackId={focusTrackId}
-            onZoom={() => setZoomed(cell.date.toISOString())}
-            onOpenDay={() => {
-              setAnchorDate(cell.date.toISOString());
-              setView("day");
-            }}
+            onZoom={(el) => openZoom(cell, el)}
+            onOpenDay={() => openDay(cell.date)}
           />
         ))}
       </motion.div>
 
-      {/* ---- magnified day ---- */}
       <AnimatePresence>
-        {zoomedCell && (
+        {zoomedCell && zoom && (
           <DayZoom
             cell={zoomedCell}
+            origin={zoom}
             tracks={tracks}
             atRiskIds={atRiskIds}
             reduce={Boolean(reduce)}
-            onClose={() => setZoomed(null)}
+            onClose={() => setZoom(null)}
             onSelectBlock={(id) => {
               selectBlock(id);
-              setZoomed(null);
+              setZoom(null);
             }}
             onSelectTask={(id) => {
               selectTask(id);
-              setZoomed(null);
+              setZoom(null);
             }}
-            onOpenDay={() => {
-              setAnchorDate(zoomedCell.date.toISOString());
-              setView("day");
-              setZoomed(null);
-            }}
+            onOpenDay={() => openDay(zoomedCell.date)}
           />
         )}
       </AnimatePresence>
@@ -224,7 +228,7 @@ function MonthCell({
   tracks: Track[];
   atRiskIds: Set<string>;
   focusTrackId: string | null;
-  onZoom: () => void;
+  onZoom: (el: HTMLElement) => void;
   onOpenDay: () => void;
 }) {
   const today = isToday(cell.date);
@@ -243,23 +247,24 @@ function MonthCell({
 
   return (
     <motion.button
-      layoutId={`month-cell-${cell.date.toISOString()}`}
       variants={riseIn}
-      onClick={onZoom}
+      onClick={(e) => onZoom(e.currentTarget)}
       onDoubleClick={onOpenDay}
       className={clsx(
         "group relative flex flex-col gap-1 overflow-hidden border-b border-r border-line p-1.5 text-left transition-colors",
-        !cell.inMonth && "opacity-35",
+        !cell.inMonth && "opacity-40",
         !cell.isWorkDay && "bg-black/20",
         "hover:bg-white/[0.04]",
       )}
       style={{ background: cell.isWorkDay ? tint : undefined }}
-      aria-label={`${format(cell.date, "EEEE d MMMM")}, ${cell.blocks.length} blocks, ${formatDuration(cell.freeMin)} free`}
+      aria-label={`${format(cell.date, "EEEE d MMMM")}: ${cell.blocks.length} blocks, ${
+        cell.isWorkDay ? `${formatDuration(cell.freeMin)} free` : "not a working day"
+      }${cell.deadlines.length > 0 ? `, ${cell.deadlines.length} due` : ""}`}
     >
       <div className="flex items-center justify-between">
         <span
           className={clsx(
-            "metric flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px]",
+            "metric flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-mini",
             today
               ? "bg-accent font-semibold text-void"
               : cell.inMonth
@@ -277,49 +282,60 @@ function MonthCell({
               riskHere ? "text-danger" : "text-ink-faint",
             )}
           >
-            <Flag size={8} />
-            <span className="metric text-[9px]">{cell.deadlines.length}</span>
+            <Flag size={9} aria-hidden />
+            <span className="metric text-micro">{cell.deadlines.length}</span>
           </span>
         )}
       </div>
 
       {/* Event pills — colour comes from the track, so a month scan reads as
-          "which project is eating this week" rather than a wall of one hue. */}
+          "which project is eating this week" rather than a wall of one hue.
+          Identity is carried by a dot plus a tinted fill; a coloured left border
+          on a pill this small is noise, and it was also the only thing on the
+          pill fighting the fill for the same job. */}
       <div className="flex min-h-0 flex-1 flex-col gap-[2px] overflow-hidden">
         {cell.blocks.slice(0, MAX_PILLS).map((b) => {
           const track = tracks.find((t) => t.id === b.trackId);
-          const accent = track ? colorOf(track.color) : "#7C8598";
-          const dim = Boolean(focusTrackId) && b.trackId !== focusTrackId;
+          const accent = track ? colorOf(track.color) : "var(--untracked)";
+          const dimmed = Boolean(focusTrackId) && b.trackId !== focusTrackId;
           return (
             <span
               key={b.id}
-              className={clsx(
-                "flex items-center gap-1 truncate rounded px-1 py-[1px] text-[9.5px] leading-tight transition-opacity",
-                dim ? "opacity-25" : "opacity-100",
-              )}
+              className="flex items-center gap-1 truncate rounded px-1 py-[1px] text-micro leading-tight text-ink transition-opacity"
               style={{
-                background: `${accent}22`,
-                color: "#EDF1F7",
-                borderLeft: `2px solid ${accent}`,
-                opacity: b.auto ? 0.85 : 1,
+                background: track
+                  ? `color-mix(in srgb, ${accent} 16%, transparent)`
+                  : "rgba(124,133,152,0.16)",
+                /*
+                 * One opacity, computed once. There used to be a Tailwind
+                 * opacity class *and* an inline opacity here; the inline value
+                 * always won, which meant track focusing silently did nothing
+                 * in this view while working everywhere else.
+                 */
+                opacity: dimmed ? 0.2 : b.auto ? 0.8 : 1,
               }}
             >
+              <span
+                aria-hidden
+                className="h-1 w-1 shrink-0 rounded-full"
+                style={{ background: accent }}
+              />
               <span className="truncate">{b.title}</span>
             </span>
           );
         })}
         {overflow > 0 && (
-          <span className="metric px-1 text-[9px] text-ink-faint">
+          <span className="metric px-1 text-micro text-ink-faint">
             +{overflow} more
           </span>
         )}
       </div>
 
-      {/* Capacity bar. Two segments: committed vs the working window. */}
+      {/* Capacity bar. Committed time against the working window. */}
       {cell.isWorkDay && (
         <div className="h-[3px] w-full overflow-hidden rounded-full bg-white/[0.06]">
           <div
-            className="h-full rounded-full transition-all"
+            className="h-full rounded-full transition-[width] duration-300 ease-out"
             style={{
               width: `${Math.min(100, cell.load * 100)}%`,
               background:
@@ -341,6 +357,7 @@ function MonthCell({
 
 function DayZoom({
   cell,
+  origin,
   tracks,
   atRiskIds,
   reduce,
@@ -350,6 +367,7 @@ function DayZoom({
   onOpenDay,
 }: {
   cell: DayCell;
+  origin: ZoomOrigin;
   tracks: Track[];
   atRiskIds: Set<string>;
   reduce: boolean;
@@ -358,8 +376,13 @@ function DayZoom({
   onSelectTask: (id: string) => void;
   onOpenDay: () => void;
 }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Escape, focus trap, focus restore — the same behaviour every other dialog
+  // in the app gets, rather than a second half-implementation.
+  useModalBehavior(true, onClose, panelRef);
+
   return (
-    <div className="absolute inset-0 z-[60] flex items-center justify-center p-4">
+    <div className="absolute inset-0 z-zoom flex items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -370,33 +393,49 @@ function DayZoom({
       />
 
       {/*
-        The magnification. The card rises out of the plane on the Z axis with a
-        slight X-rotation that settles to flat — enough to read as physical
-        depth, brief enough not to become a party trick. Skipped entirely under
-        prefers-reduced-motion, where a 3D tumble is actively unpleasant.
+        The magnification. The card rises out of the clicked cell's position on
+        the Z axis with a slight X-rotation that settles to flat — enough to read
+        as physical depth, brief enough not to become a party trick. Reduced to a
+        plain crossfade under prefers-reduced-motion, where a 3D tumble is
+        actively unpleasant.
       */}
       <motion.div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={format(cell.date, "EEEE d MMMM")}
         initial={
           reduce
-            ? { opacity: 0, scale: 0.98 }
-            : { opacity: 0, scale: 0.86, rotateX: 14, z: -160 }
+            ? { opacity: 0 }
+            : {
+                opacity: 0,
+                scale: 0.32,
+                x: origin.dx,
+                y: origin.dy,
+                rotateX: 12,
+                z: -140,
+              }
         }
-        animate={{ opacity: 1, scale: 1, rotateX: 0, z: 0 }}
+        animate={{ opacity: 1, scale: 1, x: 0, y: 0, rotateX: 0, z: 0 }}
         exit={
           reduce
-            ? { opacity: 0, scale: 0.98 }
-            : { opacity: 0, scale: 0.9, rotateX: 8, z: -100 }
+            ? { opacity: 0 }
+            : {
+                opacity: 0,
+                scale: 0.4,
+                x: origin.dx,
+                y: origin.dy,
+                rotateX: 8,
+                transition: { duration: 0.2, ease: [0.4, 0, 1, 1] },
+              }
         }
         transition={
           reduce
             ? { duration: 0.12 }
-            : { type: "spring", stiffness: 260, damping: 26, mass: 0.9 }
+            : { type: "spring", stiffness: 300, damping: 30, mass: 0.9 }
         }
         style={{ transformPerspective: 1400, transformStyle: "preserve-3d" }}
-        className="panel-raised relative flex max-h-[80%] w-full max-w-md flex-col overflow-hidden"
+        className="panel-raised relative flex max-h-[84%] w-full max-w-md flex-col overflow-hidden"
       >
         <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3">
           <div>
@@ -405,9 +444,9 @@ function DayZoom({
               {format(cell.date, "d MMMM")}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <div className="text-right">
-              <div className="eyebrow !text-[9px]">Free</div>
+              <div className="eyebrow">Free</div>
               <div
                 className={clsx(
                   "metric text-sm",
@@ -427,10 +466,10 @@ function DayZoom({
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
           {cell.deadlines.length > 0 && (
             <section className="space-y-1.5">
-              <h4 className="eyebrow">Due this day</h4>
+              <h3 className="eyebrow">Due this day</h3>
               {cell.deadlines.map((t) => {
                 const track = tracks.find((x) => x.id === t.trackId);
                 const risk = atRiskIds.has(t.id);
@@ -447,16 +486,21 @@ function DayZoom({
                   >
                     <Flag
                       size={11}
-                      className={risk ? "shrink-0 text-danger" : "shrink-0 text-ink-faint"}
+                      aria-hidden
+                      className={clsx(
+                        "shrink-0",
+                        risk ? "text-danger" : "text-ink-faint",
+                      )}
                     />
-                    <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink">
+                    <span className="min-w-0 flex-1 truncate text-dense text-ink">
                       {t.title}
                     </span>
-                    <span className="metric shrink-0 text-[10px] text-ink-faint">
+                    <span className="metric shrink-0 text-micro text-ink-faint">
                       {format(new Date(t.due), "HH:mm")}
                     </span>
                     {track && (
                       <span
+                        aria-hidden
                         className="h-1.5 w-1.5 shrink-0 rounded-full"
                         style={{ background: colorOf(track.color) }}
                       />
@@ -468,35 +512,38 @@ function DayZoom({
           )}
 
           <section className="space-y-1.5">
-            <h4 className="eyebrow">
+            <h3 className="eyebrow">
               Schedule · {formatDuration(cell.committedMin)} committed
-            </h4>
+            </h3>
             {cell.blocks.length === 0 && (
-              <p className="py-3 text-[11.5px] text-ink-faint">
+              <p className="py-3 text-dense text-ink-faint">
                 {cell.isWorkDay ? "Entirely open." : "Not a working day."}
               </p>
             )}
             {cell.blocks.map((b) => {
               const track = tracks.find((t) => t.id === b.trackId);
-              const accent = track ? colorOf(track.color) : "#7C8598";
+              const accent = track ? colorOf(track.color) : "var(--untracked)";
               return (
                 <button
                   key={b.id}
                   onClick={() => onSelectBlock(b.id)}
                   className="flex w-full items-center gap-2.5 rounded-xl border border-transparent px-3 py-2 text-left transition-colors hover:border-line hover:bg-white/[0.04]"
                 >
+                  {/* Track identity is a dot here, matching the task rail and
+                      the capacity legend. One affordance for one meaning. */}
                   <span
-                    className="h-7 w-[2.5px] shrink-0 rounded-full"
+                    aria-hidden
+                    className="h-2 w-2 shrink-0 rounded-full"
                     style={{ background: accent, opacity: b.auto ? 0.6 : 1 }}
                   />
-                  <span className="metric w-[38px] shrink-0 text-[11px] text-ink-soft">
+                  <span className="metric w-[38px] shrink-0 text-mini text-ink-soft">
                     {format(new Date(b.start), "HH:mm")}
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink">
+                  <span className="min-w-0 flex-1 truncate text-dense text-ink">
                     {b.title}
                   </span>
-                  {b.auto && <span className="chip shrink-0 !text-[9px]">auto</span>}
-                  <span className="metric shrink-0 text-[10px] text-ink-faint">
+                  {b.auto && <span className="chip shrink-0">auto</span>}
+                  <span className="metric shrink-0 text-micro text-ink-faint">
                     {formatDuration(
                       minutesBetween(new Date(b.start), new Date(b.end)),
                     )}
@@ -508,11 +555,11 @@ function DayZoom({
         </div>
 
         <footer className="flex shrink-0 items-center gap-2 border-t border-line px-4 py-2.5">
-          <span className="metric text-[10px] text-ink-faint">
+          <span className="metric text-micro text-ink-faint">
             {Math.round(cell.load * 100)}% of the working window
           </span>
           <div className="flex-1" />
-          <button onClick={onOpenDay} className="btn !px-2.5 !py-1.5 text-[11px]">
+          <button onClick={onOpenDay} className="btn !px-2.5 !py-1.5 text-mini">
             Open in day view
           </button>
         </footer>

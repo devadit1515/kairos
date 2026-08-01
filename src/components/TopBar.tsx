@@ -71,7 +71,7 @@ export function TopBar() {
   })();
 
   return (
-    <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-2.5 sm:px-4">
+    <header className="flex min-h-[var(--topbar-height)] shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-2.5 sm:px-4">
       {/* ---- identity ---- */}
       <div className="flex items-center gap-2.5">
         <svg width="22" height="22" viewBox="0 0 64 64" aria-hidden className="shrink-0">
@@ -86,11 +86,14 @@ export function TopBar() {
           <circle cx="32" cy="32" r="3.2" fill="var(--accent)" />
           <line x1="32" y1="32" x2="32" y2="21.5" stroke="var(--accent)" strokeWidth="2.4" strokeLinecap="round" />
         </svg>
+        {/* The app's only h1. Every other heading in the interface is an h2 or
+            below, so without this the document had no top-level heading at all
+            once the empty state was replaced by real data. */}
         <div className="leading-none">
-          <div className="text-[13px] font-semibold tracking-tight text-ink">Kairos</div>
-          <div className="hidden text-[10px] text-ink-faint sm:block">
+          <h1 className="text-body font-semibold tracking-tight text-ink">Kairos</h1>
+          <p className="hidden text-micro text-ink-faint sm:block">
             the time you actually have
-          </div>
+          </p>
         </div>
       </div>
 
@@ -103,7 +106,7 @@ export function TopBar() {
         </button>
         <button
           onClick={() => setAnchorDate(new Date().toISOString())}
-          className="btn !px-2.5 !py-1 text-xs"
+          className="btn !px-2.5 !py-1 text-dense"
         >
           Today
         </button>
@@ -112,7 +115,7 @@ export function TopBar() {
         </button>
       </div>
 
-      <span className="metric ml-1 hidden text-[12.5px] text-ink-soft md:inline">
+      <span className="metric ml-1 hidden text-dense text-ink-soft md:inline">
         {rangeLabel}
       </span>
 
@@ -131,7 +134,7 @@ export function TopBar() {
             aria-selected={view === v}
             onClick={() => setView(v)}
             className={clsx(
-              "relative rounded-[9px] px-2.5 py-1 text-[11px] capitalize transition-colors",
+              "relative rounded-[9px] px-2.5 py-1 text-mini capitalize transition-colors",
               view === v ? "text-ink" : "text-ink-faint hover:text-ink-soft",
             )}
           >
@@ -173,7 +176,7 @@ export function TopBar() {
 
         <button
           onClick={() => setIngestOpen(true)}
-          className="btn !px-2.5 !py-1.5 text-xs"
+          className="btn !px-2.5 !py-1.5 text-dense"
           title="Extract commitments from any document"
         >
           <Sparkles size={13} className="text-accent" />
@@ -182,12 +185,12 @@ export function TopBar() {
 
         <button
           onClick={() => setPaletteOpen(true)}
-          className="btn !px-2.5 !py-1.5 text-xs"
+          className="btn !px-2.5 !py-1.5 text-dense"
           aria-label="Open command palette"
         >
           <Search size={13} />
           <span className="hidden md:inline">Search</span>
-          <kbd className="ml-1 hidden rounded border border-line bg-black/40 px-1 font-mono text-[9px] text-ink-faint md:inline">
+          <kbd className="kbd ml-1 hidden md:inline-flex">
             ⌘K
           </kbd>
         </button>

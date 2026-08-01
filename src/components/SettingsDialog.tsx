@@ -22,18 +22,9 @@ const SyncPanel = dynamic(
 import { downloadICS, downloadJSON } from "@/lib/ics";
 import { colorOf, TRACK_COLORS } from "@/lib/types";
 import { formatDuration } from "@/lib/scheduler";
+import { SHORTCUTS } from "@/lib/shortcuts";
 
 const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
-
-const SHORTCUTS: Array<[string, string]> = [
-  ["⌘K", "Command palette"],
-  ["D W M A", "Day, week, month, agenda"],
-  ["T", "Jump to today"],
-  ["P", "Auto-plan"],
-  ["I", "Ingest a document"],
-  ["⌘Z", "Undo"],
-  ["Esc", "Clear selection"],
-];
 
 function minutesToTime(min: number): string {
   return `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
@@ -96,7 +87,7 @@ export function SettingsDialog() {
           <h3 className="eyebrow">Working hours</h3>
           <div className="grid grid-cols-2 gap-2">
             <label className="space-y-1">
-              <span className="text-[10.5px] text-ink-faint">Start</span>
+              <span className="text-mini text-ink-faint">Start</span>
               <input
                 type="time"
                 value={minutesToTime(prefs.dayStartMin)}
@@ -108,7 +99,7 @@ export function SettingsDialog() {
               />
             </label>
             <label className="space-y-1">
-              <span className="text-[10.5px] text-ink-faint">End</span>
+              <span className="text-mini text-ink-faint">End</span>
               <input
                 type="time"
                 value={minutesToTime(prefs.dayEndMin)}
@@ -128,7 +119,7 @@ export function SettingsDialog() {
                 onClick={() => toggleDay(i)}
                 aria-pressed={prefs.workDays.includes(i)}
                 className={clsx(
-                  "h-7 flex-1 rounded-lg border text-[11px] transition-colors",
+                  "h-7 flex-1 rounded-lg border text-mini transition-colors",
                   prefs.workDays.includes(i)
                     ? "border-accent/50 bg-accent/10 text-accent"
                     : "border-line text-ink-faint hover:text-ink-soft",
@@ -139,7 +130,7 @@ export function SettingsDialog() {
             ))}
           </div>
 
-          <p className="text-[10.5px] leading-relaxed text-ink-faint">
+          <p className="text-mini leading-relaxed text-ink-faint">
             That&apos;s{" "}
             <span className="metric text-ink-soft">
               {formatDuration(weeklyCapacity)}
@@ -208,7 +199,7 @@ export function SettingsDialog() {
                   color: tracks.length % TRACK_COLORS.length,
                 })
               }
-              className="btn btn-ghost !px-2 !py-1 text-[11px]"
+              className="btn btn-ghost !px-2 !py-1 text-mini"
             >
               <Plus size={12} />
               Add
@@ -216,7 +207,7 @@ export function SettingsDialog() {
           </div>
 
           {tracks.length === 0 && (
-            <p className="text-[11px] text-ink-faint">
+            <p className="text-mini text-ink-faint">
               No tracks yet. They group commitments and colour the calendar.
             </p>
           )}
@@ -237,14 +228,14 @@ export function SettingsDialog() {
                 <input
                   value={t.name}
                   onChange={(e) => updateTrack(t.id, { name: e.target.value })}
-                  className="field !py-1 text-[12px]"
+                  className="field !py-1 text-dense"
                 />
                 <input
                   value={t.code}
                   onChange={(e) =>
                     updateTrack(t.id, { code: e.target.value.toUpperCase().slice(0, 6) })
                   }
-                  className="field metric w-16 shrink-0 !py-1 text-center text-[11px]"
+                  className="field metric w-16 shrink-0 !py-1 text-center text-mini"
                   aria-label="Short code"
                 />
                 <button
@@ -274,7 +265,7 @@ export function SettingsDialog() {
                 downloadICS(blocks, tracks);
                 toast("Exported .ics", "success");
               }}
-              className="btn !px-2 !py-1.5 text-[11px]"
+              className="btn !px-2 !py-1.5 text-mini"
             >
               <Download size={12} />
               .ics
@@ -284,14 +275,14 @@ export function SettingsDialog() {
                 downloadJSON({ tracks, tasks, blocks, prefs });
                 toast("Exported backup", "success");
               }}
-              className="btn !px-2 !py-1.5 text-[11px]"
+              className="btn !px-2 !py-1.5 text-mini"
             >
               <Download size={12} />
               Backup
             </button>
             <button
               onClick={() => fileInput.current?.click()}
-              className="btn !px-2 !py-1.5 text-[11px]"
+              className="btn !px-2 !py-1.5 text-mini"
             >
               <Upload size={12} />
               Restore
@@ -319,7 +310,7 @@ export function SettingsDialog() {
               reader.readAsText(file);
             }}
           />
-          <p className="text-[10.5px] leading-relaxed text-ink-faint">
+          <p className="text-mini leading-relaxed text-ink-faint">
             Everything is stored in this browser. Export a backup before clearing
             site data.
           </p>
@@ -333,14 +324,12 @@ export function SettingsDialog() {
             <Keyboard size={12} className="text-ink-faint" />
             <h3 className="eyebrow">Shortcuts</h3>
           </div>
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-            {SHORTCUTS.map(([key, label]) => (
-              <div key={key} className="flex items-center justify-between gap-2">
-                <dt className="text-[11px] text-ink-soft">{label}</dt>
-                <dd>
-                  <kbd className="rounded border border-line bg-black/40 px-1.5 py-0.5 font-mono text-[9px] text-ink-faint">
-                    {key}
-                  </kbd>
+          <dl className="grid grid-cols-1 gap-x-5 gap-y-1.5 sm:grid-cols-2">
+            {SHORTCUTS.map(({ keys, action }) => (
+              <div key={keys} className="flex items-center justify-between gap-2">
+                <dt className="text-mini text-ink-soft">{action}</dt>
+                <dd className="shrink-0">
+                  <kbd className="kbd">{keys}</kbd>
                 </dd>
               </div>
             ))}
@@ -373,8 +362,8 @@ function Slider({
   return (
     <div className="space-y-1">
       <div className="flex items-baseline justify-between">
-        <span className="text-[11.5px] text-ink-soft">{label}</span>
-        <span className="metric text-[11px] text-ink">
+        <span className="text-dense text-ink-soft">{label}</span>
+        <span className="metric text-mini text-ink">
           {value}
           {unit}
         </span>
@@ -390,7 +379,7 @@ function Slider({
         aria-label={label}
       />
       {hint && (
-        <p className="text-[10.5px] leading-relaxed text-ink-faint">{hint}</p>
+        <p className="text-mini leading-relaxed text-ink-faint">{hint}</p>
       )}
     </div>
   );

@@ -32,6 +32,8 @@ interface Command {
   icon: React.ComponentType<{ size?: number; className?: string }>;
   run: () => void;
   group: string;
+  /** Requires a second activation. See `pending` below. */
+  destructive?: boolean;
 }
 
 /**
@@ -82,12 +84,21 @@ export function CommandPalette() {
 
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
+  /*
+   * Inline confirmation for destructive commands. Clearing the workspace was one
+   * fuzzy match and one Enter away, and while it pushes an undo snapshot, that
+   * snapshot is deliberately not persisted — so a reload after an accidental
+   * clear loses everything with no way back. A second deliberate keypress is
+   * cheaper than a modal and keeps the palette a single uninterrupted flow.
+   */
+  const [pending, setPending] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   const close = () => {
     setPaletteOpen(false);
     setQuery("");
     setCursor(0);
+    setPending(null);
   };
 
   const commands: Command[] = useMemo(
@@ -102,7 +113,7 @@ export function CommandPalette() {
       { id: "export", label: "Export to .ics", icon: Download, group: "Data", run: () => { downloadICS(blocks, tracks); toast("Exported .ics", "success"); close(); } },
       { id: "sample", label: "Load sample week", icon: FlaskConical, group: "Data", run: () => { loadSample(); close(); } },
       { id: "undo", label: "Undo last change", hint: "⌘Z", icon: Undo2, group: "Data", run: () => { undo(); close(); } },
-      { id: "clear", label: "Clear workspace", icon: Trash2, group: "Data", run: () => { reset(); close(); } },
+      { id: "clear", label: "Clear workspace", icon: Trash2, group: "Data", destructive: true, run: () => { reset(); close(); } },
       { id: "settings", label: "Settings", hint: ",", icon: Settings2, group: "Data", run: () => { setSettingsOpen(true); close(); } },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -161,7 +172,14 @@ export function CommandPalette() {
     return r;
   }, [showCreate, matchedCommands, matchedTasks, matchedBlocks]);
 
-  useEffect(() => setCursor(0), [query]);
+  useEffect(() => {
+    setCursor(0);
+    setPending(null);
+  }, [query]);
+
+  // Moving off a primed command disarms it, so confirmation can't be inherited
+  // by whatever row happens to be selected next.
+  useEffect(() => setPending(null), [cursor]);
 
   const runRow = (row: Row | undefined) => {
     if (!row) return;
@@ -184,6 +202,10 @@ export function CommandPalette() {
         break;
       }
       case "command":
+        if (row.command.destructive && pending !== row.command.id) {
+          setPending(row.command.id);
+          return;
+        }
         row.command.run();
         break;
       case "task":
@@ -232,18 +254,22 @@ export function CommandPalette() {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder="Search, or type a task — “ship v2 friday 3h !”"
-          className="w-full bg-transparent text-[13.5px] text-ink outline-none placeholder:text-ink-faint"
+          className="w-full bg-transparent text-body text-ink outline-none placeholder:text-ink-faint"
           aria-label="Command palette"
         />
-        <kbd className="hidden shrink-0 rounded border border-line bg-black/40 px-1.5 py-0.5 font-mono text-[9px] text-ink-faint sm:block">
+        <kbd className="kbd hidden shrink-0 sm:inline-flex">
           ESC
         </kbd>
       </div>
 
       <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-1.5">
         {rows.length === 0 && (
-          <div className="px-3 py-8 text-center text-[12px] text-ink-faint">
-            No matches.
+          <div className="space-y-1 px-3 py-8 text-center">
+            <p className="text-dense text-ink-soft">No matches.</p>
+            <p className="text-mini leading-relaxed text-ink-faint">
+              Type at least three characters to capture it as a new commitment
+              instead.
+            </p>
           </div>
         )}
 
@@ -255,7 +281,7 @@ export function CommandPalette() {
               <Row key="create" index={i} active={active} onClick={() => runRow(row)}>
                 <Plus size={14} className="shrink-0 text-accent" />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[12.5px] text-ink">
+                  <div className="truncate text-dense text-ink">
                     Create{" "}
                     <span className="font-medium text-accent">{parsed.title}</span>
                   </div>
@@ -279,20 +305,33 @@ export function CommandPalette() {
             const showGroup = row.command.group !== groupSeen;
             groupSeen = row.command.group;
             const Icon = row.command.icon;
+            const armed = pending === row.command.id;
             return (
               <div key={row.command.id}>
                 {showGroup && !query && (
                   <div className="eyebrow px-3 pb-1 pt-3">{row.command.group}</div>
                 )}
                 <Row index={i} active={active} onClick={() => runRow(row)}>
-                  <Icon size={14} className="shrink-0 text-ink-faint" />
-                  <span className="flex-1 truncate text-[12.5px] text-ink">
-                    {row.command.label}
+                  <Icon
+                    size={14}
+                    aria-hidden
+                    className={clsx(
+                      "shrink-0",
+                      armed ? "text-danger" : "text-ink-faint",
+                    )}
+                  />
+                  <span
+                    className={clsx(
+                      "flex-1 truncate text-dense",
+                      armed ? "text-danger" : "text-ink",
+                    )}
+                  >
+                    {armed
+                      ? `${row.command.label} — press again to confirm`
+                      : row.command.label}
                   </span>
-                  {row.command.hint && (
-                    <kbd className="shrink-0 rounded border border-line bg-black/40 px-1.5 py-0.5 font-mono text-[9px] text-ink-faint">
-                      {row.command.hint}
-                    </kbd>
+                  {row.command.hint && !armed && (
+                    <kbd className="kbd shrink-0">{row.command.hint}</kbd>
                   )}
                 </Row>
               </div>
@@ -306,10 +345,10 @@ export function CommandPalette() {
               <Row key={row.id} index={i} active={active} onClick={() => runRow(row)}>
                 <span
                   className="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ background: track ? colorOf(track.color) : "#3A4152" }}
+                  style={{ background: track ? colorOf(track.color) : "var(--untracked)" }}
                 />
-                <span className="flex-1 truncate text-[12.5px] text-ink">{t.title}</span>
-                <span className="metric shrink-0 text-[10px] text-ink-faint">
+                <span className="flex-1 truncate text-dense text-ink">{t.title}</span>
+                <span className="metric shrink-0 text-micro text-ink-faint">
                   {format(new Date(t.due), "d MMM")}
                 </span>
               </Row>
@@ -324,8 +363,8 @@ export function CommandPalette() {
           return (
             <Row key={row.id} index={i} active={active} onClick={() => runRow(row)}>
               <CalendarDays size={13} className="shrink-0 text-ink-faint" />
-              <span className="flex-1 truncate text-[12.5px] text-ink">{b.title}</span>
-              <span className="metric shrink-0 text-[10px] text-ink-faint">
+              <span className="flex-1 truncate text-dense text-ink">{b.title}</span>
+              <span className="metric shrink-0 text-micro text-ink-faint">
                 {format(new Date(b.start), "d MMM HH:mm")}
               </span>
             </Row>
@@ -340,10 +379,10 @@ export function CommandPalette() {
           ["esc", "close"],
         ].map(([k, l]) => (
           <span key={k} className="flex items-center gap-1.5">
-            <kbd className="rounded border border-line bg-black/40 px-1.5 py-0.5 font-mono text-[9px] text-ink-faint">
+            <kbd className="kbd">
               {k}
             </kbd>
-            <span className="text-[10px] text-ink-faint">{l}</span>
+            <span className="text-micro text-ink-faint">{l}</span>
           </span>
         ))}
       </footer>
@@ -366,19 +405,23 @@ function Row({
     <motion.button
       data-index={index}
       onClick={onClick}
+      // The selected row is marked by a full highlight that slides between rows,
+      // rather than a 2px accent stripe glued to its left edge. It reads at a
+      // glance from anywhere in the row instead of only at the margin.
       className={clsx(
         "relative flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors",
-        active ? "bg-white/[0.07]" : "hover:bg-white/[0.04]",
+        active ? "text-ink" : "hover:bg-white/[0.04]",
       )}
     >
       {active && (
         <motion.span
+          aria-hidden
           layoutId="palette-cursor"
           transition={{ type: "spring", stiffness: 700, damping: 42 }}
-          className="absolute inset-y-1 left-0 w-[2px] rounded-full bg-accent"
+          className="absolute inset-0 rounded-xl border border-accent/30 bg-accent/[0.09]"
         />
       )}
-      {children}
+      <span className="relative flex w-full items-center gap-2.5">{children}</span>
     </motion.button>
   );
 }

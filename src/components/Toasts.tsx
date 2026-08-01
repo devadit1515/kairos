@@ -28,7 +28,7 @@ export function Toasts() {
       // aria-live so screen readers announce confirmations without stealing focus.
       role="status"
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-[90] flex flex-col items-center gap-2 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-toast flex flex-col items-center gap-2 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
     >
       <AnimatePresence initial={false}>
         {toasts.map((t) => (
@@ -45,7 +45,7 @@ export function Toasts() {
             )}
           >
             <span className={clsx("h-1.5 w-1.5 shrink-0 rounded-full", DOT[t.tone])} />
-            <span className="text-[12.5px] text-ink">{t.message}</span>
+            <span className="text-dense text-ink">{t.message}</span>
 
             {t.action && (
               <button
@@ -53,7 +53,7 @@ export function Toasts() {
                   t.action!.run();
                   dismissToast(t.id);
                 }}
-                className="ml-1 shrink-0 rounded-lg px-2 py-1 text-[11px] font-medium text-accent transition-colors hover:bg-accent/10"
+                className="ml-1 shrink-0 rounded-lg px-2 py-1 text-mini font-medium text-accent transition-colors hover:bg-accent/10"
               >
                 {t.action.label}
               </button>

@@ -55,7 +55,7 @@ export function DeadlineMarkers({
         const ratio = (minute - dayStartMin) / span;
         const track = tracks.find((t) => t.id === task.trackId);
         const risk = atRiskIds.has(task.id);
-        const accent = risk ? "var(--danger)" : track ? colorOf(track.color) : "#7C8598";
+        const accent = risk ? "var(--danger)" : track ? colorOf(track.color) : "var(--untracked)";
 
         return (
           <motion.button
@@ -68,7 +68,12 @@ export function DeadlineMarkers({
               onSelect(task.id);
             }}
             style={{ top: `${ratio * 100}%`, originX: 0 }}
-            className="group/marker absolute inset-x-0 z-[35] -translate-y-1/2 cursor-pointer"
+            /*
+             * `tap-expand` gives this a 44px-tall hit area. The visible marker is
+             * a 1px hairline, which meant the button was also 1px tall and
+             * effectively impossible to click — a control nobody could operate.
+             */
+            className="group/marker tap-expand absolute inset-x-0 z-marker -translate-y-1/2 cursor-pointer"
             aria-label={`Deadline: ${task.title} at ${format(d, "HH:mm")}`}
           >
             <span
@@ -83,7 +88,7 @@ export function DeadlineMarkers({
             <span
               className={clsx(
                 "absolute right-0.5 top-0 flex -translate-y-full items-center gap-0.5 rounded px-1",
-                "text-[9px] leading-tight transition-colors",
+                "text-micro leading-tight transition-colors",
                 "bg-void/70 opacity-70 group-hover/marker:opacity-100",
               )}
               style={{ color: accent }}

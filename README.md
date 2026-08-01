@@ -122,10 +122,16 @@ Day-first and month-first dates both work, because half the world writes
 | `T` | Jump to today |
 | `P` | Auto-plan |
 | `I` | Ingest a document |
+| `,` | Settings |
 | `⌘Z` / `⌘⇧Z` | Undo / redo |
 | `Esc` | Clear selection |
 | `↑` `↓` | Nudge selected block 15m |
 | `⇧↑` `⇧↓` | Resize selected block |
+
+Single-letter shortcuts are suppressed while a dialog is open and while you're
+typing, so the app never eats your input. The list shown in Settings is
+generated from [`src/lib/shortcuts.ts`](src/lib/shortcuts.ts) — one source, so the
+documentation can't drift from the interface.
 
 ## Cross-platform
 
@@ -153,6 +159,8 @@ src/
     ics.ts         RFC 5545 export
     types.ts       domain model: Track, Task, Block, Preferences
     store.ts       state, persistence, snapshot undo
+    capacity.ts    one shared clock + one capacity report for the whole UI
+    shortcuts.ts   the canonical keyboard map, as displayed
     supabase.ts    optional cloud sync — no-ops without credentials
   app/api/
     ingest         Claude-backed document extraction
@@ -170,6 +178,15 @@ path runs in the browser, in a route handler, and inside the nightly Render
 Workflow — so the plan generated at 3am agrees with the number shown at 9am.
 `now` is always injected, never read from the ambient clock, which makes the
 whole thing deterministic and testable.
+
+**One clock, one report.** Because `now` is a parameter, it's tempting for each
+component to supply its own — and five of them did, which meant the same
+earliest-deadline-first walk ran five times per render and the five results could
+disagree about which deadlines were reachable. `capacity.ts` holds a single
+minute-resolution clock and derives one memoised report from it, so the red badge
+in the rail, the red hairline on the grid, and the headline in the capacity panel
+are reading the same object. It also means the numbers advance as the day does
+rather than freezing at whatever time the tab was opened.
 
 **Work owed and time committed are separate types.** `Task` has a deadline and
 an effort estimate; `Block` occupies a slot. Keeping them apart is what makes

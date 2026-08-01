@@ -47,16 +47,17 @@ export function EmptyState() {
           </div>
         </motion.div>
 
-        <motion.h1
+        {/* h2, not h1 — the top bar owns the document's single h1. */}
+        <motion.h2
           variants={riseIn}
           className="text-balance text-2xl font-semibold tracking-tight text-ink"
         >
           The time you actually have
-        </motion.h1>
+        </motion.h2>
 
         <motion.p
           variants={riseIn}
-          className="mx-auto mt-3 max-w-md text-pretty text-[13.5px] leading-relaxed text-ink-soft"
+          className="mx-auto mt-3 max-w-md text-pretty text-body leading-relaxed text-ink-soft"
         >
           Every calendar tells you what you agreed to. None of them tell you
           whether it&apos;s possible. Kairos subtracts the work you owe from the
@@ -88,7 +89,7 @@ export function EmptyState() {
           </button>
         </motion.div>
 
-        <motion.p variants={riseIn} className="mt-6 text-[11px] text-ink-faint">
+        <motion.p variants={riseIn} className="mt-6 text-mini text-ink-faint">
           Runs entirely in your browser. No account, no keys required.
         </motion.p>
       </motion.div>

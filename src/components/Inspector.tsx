@@ -15,11 +15,36 @@ import {
 } from "lucide-react";
 import { clsx } from "clsx";
 import { useStore } from "@/lib/store";
-import { analyzeCapacity, formatDuration, minutesBetween } from "@/lib/scheduler";
+import { useCapacity } from "@/lib/capacity";
+import { formatDuration, minutesBetween } from "@/lib/scheduler";
 import { colorOf, TASK_TYPE_LABEL, type TaskType } from "@/lib/types";
 import { spring } from "@/lib/motion";
 
 const TYPES: TaskType[] = ["task", "writing", "project", "research", "milestone", "admin"];
+
+/**
+ * 40 hours. The same ceiling the ingest route clamps extracted estimates to —
+ * the UI had no bound at all, so typing an extra zero silently turned the whole
+ * capacity readout into nonsense with no way to tell why.
+ */
+const MAX_MINUTES = 60 * 40;
+
+const clampMinutes = (raw: string): number => {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(MAX_MINUTES, Math.max(0, Math.round(n)));
+};
+
+/**
+ * `new Date("").toISOString()` throws a RangeError, and clearing a
+ * datetime-local input hands you exactly that empty string — so emptying the
+ * deadline field used to take the whole drawer down with it. Returns null on
+ * anything unparseable so the caller can simply ignore the keystroke.
+ */
+function toISO(raw: string): string | null {
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
 
 /**
  * Detail drawer for whatever is selected.
@@ -33,7 +58,6 @@ export function Inspector() {
     tasks,
     blocks,
     tracks,
-    prefs,
     selectedTaskId,
     selectedBlockId,
     selectTask,
@@ -50,11 +74,14 @@ export function Inspector() {
   const block = blocks.find((b) => b.id === selectedBlockId);
   const open = Boolean(task || block);
 
-  const outlook = useMemo(() => {
-    if (!task) return null;
-    const report = analyzeCapacity(tasks, blocks, new Date(), prefs);
-    return report.outlook.find((o) => o.task.id === task.id) ?? null;
-  }, [task, tasks, blocks, prefs]);
+  // Same shared report as the capacity panel — a verdict here that disagreed
+  // with the headline on the left would be worse than showing nothing.
+  const report = useCapacity();
+  const outlook = useMemo(
+    () =>
+      task ? (report.outlook.find((o) => o.task.id === task.id) ?? null) : null,
+    [task, report.outlook],
+  );
 
   const close = () => {
     selectTask(null);
@@ -69,7 +96,7 @@ export function Inspector() {
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: 24 }}
           transition={spring.smooth}
-          className="panel-raised fixed inset-x-3 bottom-20 z-[70] max-h-[62vh] overflow-y-auto p-4
+          className="panel-raised fixed inset-x-3 bottom-20 z-inspector max-h-[62vh] overflow-y-auto p-4
             sm:inset-x-auto sm:right-4 sm:top-[70px] sm:bottom-4 sm:max-h-none sm:w-[320px]"
           aria-label="Details"
         >
@@ -89,8 +116,8 @@ export function Inspector() {
               <input
                 value={task.title}
                 onChange={(e) => updateTask(task.id, { title: e.target.value })}
-                className="field !border-transparent !bg-transparent !px-0 text-[15px] font-medium leading-snug focus:!border-transparent"
-                aria-label="Title"
+                className="field-title"
+                aria-label="Commitment title"
               />
 
               {/* Feasibility verdict, stated plainly. This is the number the
@@ -106,13 +133,13 @@ export function Inspector() {
                 >
                   <div
                     className={clsx(
-                      "text-[11.5px] font-medium",
+                      "text-dense font-medium",
                       outlook.feasible ? "text-ok" : "text-danger",
                     )}
                   >
                     {outlook.feasible ? "Reachable" : "Not reachable in time"}
                   </div>
-                  <div className="mt-1 text-[11px] leading-relaxed text-ink-soft">
+                  <div className="mt-1 text-mini leading-relaxed text-ink-soft">
                     {formatDuration(outlook.remainingMin)} left to do ·{" "}
                     {formatDuration(outlook.runwayMin)} of free time before the
                     deadline
@@ -134,11 +161,10 @@ export function Inspector() {
                 <input
                   type="datetime-local"
                   value={format(new Date(task.due), "yyyy-MM-dd'T'HH:mm")}
-                  onChange={(e) =>
-                    updateTask(task.id, {
-                      due: new Date(e.target.value).toISOString(),
-                    })
-                  }
+                  onChange={(e) => {
+                    const due = toISO(e.target.value);
+                    if (due) updateTask(task.id, { due });
+                  }}
                   className="field"
                 />
               </Field>
@@ -149,16 +175,17 @@ export function Inspector() {
                     <input
                       type="number"
                       min={0}
+                      max={MAX_MINUTES}
                       step={15}
                       value={task.estimateMin}
                       onChange={(e) =>
                         updateTask(task.id, {
-                          estimateMin: Math.max(0, Number(e.target.value)),
+                          estimateMin: clampMinutes(e.target.value),
                         })
                       }
                       className="field metric"
                     />
-                    <span className="text-[10px] text-ink-faint">min</span>
+                    <span className="text-micro text-ink-faint">min</span>
                   </div>
                 </Field>
                 <Field label="Logged">
@@ -166,16 +193,17 @@ export function Inspector() {
                     <input
                       type="number"
                       min={0}
+                      max={MAX_MINUTES}
                       step={15}
                       value={task.doneMin}
                       onChange={(e) =>
                         updateTask(task.id, {
-                          doneMin: Math.max(0, Number(e.target.value)),
+                          doneMin: clampMinutes(e.target.value),
                         })
                       }
                       className="field metric"
                     />
-                    <span className="text-[10px] text-ink-faint">min</span>
+                    <span className="text-micro text-ink-faint">min</span>
                   </div>
                 </Field>
               </div>
@@ -187,7 +215,7 @@ export function Inspector() {
                   <button
                     key={m}
                     onClick={() => logTime(task.id, m)}
-                    className="btn flex-1 !px-2 !py-1 text-[11px]"
+                    className="btn flex-1 !px-2 !py-1 text-mini"
                   >
                     +{m}m
                   </button>
@@ -201,7 +229,7 @@ export function Inspector() {
                       key={t}
                       onClick={() => updateTask(task.id, { type: t })}
                       className={clsx(
-                        "rounded-lg border px-2 py-1 text-[10.5px] transition-colors",
+                        "rounded-lg border px-2 py-1 text-mini transition-colors",
                         task.type === t
                           ? "border-accent/50 bg-accent/10 text-accent"
                           : "border-line text-ink-faint hover:text-ink-soft",
@@ -220,7 +248,7 @@ export function Inspector() {
                       key={w}
                       onClick={() => updateTask(task.id, { weight: w })}
                       className={clsx(
-                        "flex-1 rounded-lg border px-2 py-1 text-[10.5px] transition-colors",
+                        "flex-1 rounded-lg border px-2 py-1 text-mini transition-colors",
                         task.weight === w
                           ? "border-accent/50 bg-accent/10 text-accent"
                           : "border-line text-ink-faint hover:text-ink-soft",
@@ -264,18 +292,18 @@ export function Inspector() {
               <div className="space-y-1.5">
                 <button
                   onClick={() => buildPrepLadder(task.id)}
-                  className="btn w-full !justify-start text-[12px]"
+                  className="btn w-full !justify-start text-dense"
                 >
                   <Repeat size={13} className="text-accent" />
                   Build prep ladder
-                  <span className="ml-auto text-[10px] text-ink-faint">14·7·3·1d</span>
+                  <span className="ml-auto text-micro text-ink-faint">14·7·3·1d</span>
                 </button>
                 <button
                   onClick={() => {
                     removeTask(task.id);
                     close();
                   }}
-                  className="btn w-full !justify-start text-[12px] hover:!border-danger/40 hover:!text-danger"
+                  className="btn w-full !justify-start text-dense hover:!border-danger/40 hover:!text-danger"
                 >
                   <Trash2 size={13} />
                   Delete commitment
@@ -289,11 +317,11 @@ export function Inspector() {
               <input
                 value={block.title}
                 onChange={(e) => updateBlock(block.id, { title: e.target.value })}
-                className="field !border-transparent !bg-transparent !px-0 text-[15px] font-medium leading-snug"
-                aria-label="Title"
+                className="field-title"
+                aria-label="Block title"
               />
 
-              <div className="flex items-center gap-2 text-[11.5px] text-ink-soft">
+              <div className="flex items-center gap-2 text-dense text-ink-soft">
                 <CalendarClock size={13} className="text-ink-faint" />
                 <span className="metric">
                   {format(new Date(block.start), "EEE d MMM · HH:mm")} –{" "}
@@ -309,7 +337,7 @@ export function Inspector() {
               {block.auto && (
                 <div className="flex items-start gap-2 rounded-xl border border-line bg-white/[0.02] px-3 py-2">
                   <Zap size={12} className="mt-0.5 shrink-0 text-accent" />
-                  <p className="text-[11px] leading-relaxed text-ink-soft">
+                  <p className="text-mini leading-relaxed text-ink-soft">
                     Placed by the planner. Re-planning will move it unless you pin
                     it.
                   </p>
@@ -321,11 +349,14 @@ export function Inspector() {
                   <input
                     type="datetime-local"
                     value={format(new Date(block.start), "yyyy-MM-dd'T'HH:mm")}
-                    onChange={(e) =>
-                      updateBlock(block.id, {
-                        start: new Date(e.target.value).toISOString(),
-                      })
-                    }
+                    onChange={(e) => {
+                      const start = toISO(e.target.value);
+                      // An inverted block renders with a negative height and
+                      // breaks every duration that reads off it.
+                      if (start && new Date(start) < new Date(block.end)) {
+                        updateBlock(block.id, { start });
+                      }
+                    }}
                     className="field"
                   />
                 </Field>
@@ -333,11 +364,12 @@ export function Inspector() {
                   <input
                     type="datetime-local"
                     value={format(new Date(block.end), "yyyy-MM-dd'T'HH:mm")}
-                    onChange={(e) =>
-                      updateBlock(block.id, {
-                        end: new Date(e.target.value).toISOString(),
-                      })
-                    }
+                    onChange={(e) => {
+                      const end = toISO(e.target.value);
+                      if (end && new Date(end) > new Date(block.start)) {
+                        updateBlock(block.id, { end });
+                      }
+                    }}
                     className="field"
                   />
                 </Field>
@@ -386,7 +418,7 @@ export function Inspector() {
                     onClick={() =>
                       updateBlock(block.id, { pinned: !block.pinned })
                     }
-                    className="btn w-full !justify-start text-[12px]"
+                    className="btn w-full !justify-start text-dense"
                   >
                     {block.pinned ? <PinOff size={13} /> : <Pin size={13} />}
                     {block.pinned ? "Unpin — let the planner move it" : "Pin in place"}
@@ -397,7 +429,7 @@ export function Inspector() {
                     removeBlock(block.id);
                     close();
                   }}
-                  className="btn w-full !justify-start text-[12px] hover:!border-danger/40 hover:!text-danger"
+                  className="btn w-full !justify-start text-dense hover:!border-danger/40 hover:!text-danger"
                 >
                   <Trash2 size={13} />
                   Delete block

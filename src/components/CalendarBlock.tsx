@@ -48,7 +48,7 @@ export function CalendarBlock({
   onCommit,
 }: Props) {
   const { block, top, height, column, columns, clippedStart, clippedEnd } = positioned;
-  const accent = track ? colorOf(track.color) : "#7C8598";
+  const accent = track ? colorOf(track.color) : "var(--untracked)";
   const start = new Date(block.start);
   const end = new Date(block.end);
   const minutes = minutesBetween(start, end);
@@ -126,9 +126,11 @@ export function CalendarBlock({
   const offsetX = drag && drag.mode === "move" ? drag.deltaDays * dayWidth : 0;
   const stretchY = drag && drag.mode === "resize" ? drag.deltaMin * pxPerMinute : 0;
 
-  const previewStart = drag && drag.mode === "move" ? addMinutes(start, drag.deltaMin) : start;
-  const previewEnd =
-    drag && drag.mode === "resize" ? addMinutes(end, drag.deltaMin) : drag ? addMinutes(end, drag.deltaMin) : end;
+  const previewStart =
+    drag && drag.mode === "move" ? addMinutes(start, drag.deltaMin) : start;
+  // Both a move and a resize shift the end edge by the same delta; the two
+  // branches of the ternary that used to be here were identical.
+  const previewEnd = drag ? addMinutes(end, drag.deltaMin) : end;
 
   return (
     <motion.div
@@ -160,10 +162,11 @@ export function CalendarBlock({
           selected || dragging
             ? `0 0 0 1px ${accent}, 0 10px 30px -12px ${accent}99`
             : undefined,
+        // Lifts to the `drag` layer so it clears neighbours mid-move.
         zIndex: dragging ? 50 : undefined,
       }}
       className={clsx(
-        "group absolute z-10 overflow-hidden rounded-lg border text-left",
+        "group absolute z-block overflow-hidden rounded-lg border text-left",
         "gpu drag-none touch-none",
         dragging ? "cursor-grabbing" : "cursor-grab",
         clippedStart && "rounded-t-none border-t-0",
@@ -191,14 +194,14 @@ export function CalendarBlock({
       aria-label={`${block.title}, ${format(start, "HH:mm")} to ${format(end, "HH:mm")}`}
       aria-pressed={selected}
     >
-      <span
-        aria-hidden
-        className="absolute inset-y-0 left-0 w-[2.5px] rounded-full"
-        style={{ background: accent, opacity: provisional ? 0.6 : 1 }}
-      />
-
+      {/*
+        No coloured left spine. The block's fill *and* its border are already
+        drawn from the track colour, so a stripe added a third element competing
+        to say the same thing — and at 2.5px inside a 40px-tall block it mostly
+        just ate the text's left margin.
+      */}
       <div className="px-2 py-1">
-        <div className="flex min-w-0 items-center gap-1.5 pl-1">
+        <div className="flex min-w-0 items-center gap-1.5">
           {Icon && minutes >= 45 && (
             <Icon size={10} style={{ color: accent }} className="shrink-0 opacity-80" />
           )}
@@ -208,7 +211,7 @@ export function CalendarBlock({
           <span
             className={clsx(
               "truncate font-medium leading-tight text-ink",
-              minutes < 40 || compact ? "text-[10.5px]" : "text-xs",
+              minutes < 40 || compact ? "text-mini" : "text-dense",
             )}
           >
             {block.title}
@@ -216,25 +219,25 @@ export function CalendarBlock({
         </div>
 
         {(minutes >= 50 || dragging) && (
-          <div className="mt-0.5 flex items-center gap-1.5 pl-1">
+          <div className="mt-0.5 flex items-center gap-1.5">
             {/* While dragging, the label previews the *destination* time —
                 otherwise you're reading a number that's already wrong. */}
             <span
               className={clsx(
-                "metric text-[10px]",
+                "metric text-micro",
                 dragging ? "text-accent" : "text-ink-soft",
               )}
             >
               {format(previewStart, "HH:mm")}
             </span>
-            <span className="metric text-[10px] text-ink-faint">
+            <span className="metric text-micro text-ink-faint">
               {formatDuration(minutesBetween(previewStart, previewEnd))}
             </span>
           </div>
         )}
 
         {minutes >= 100 && track && !dragging && (
-          <div className="mt-1 pl-1">
+          <div className="mt-1">
             <span className="chip !border-transparent !bg-black/25 !px-1.5 !py-0">
               {track.code}
             </span>
@@ -242,18 +245,24 @@ export function CalendarBlock({
         )}
       </div>
 
-      {/* Resize grip. Only worth showing once the block is tall enough that a
-          6px strip doesn't cover half of it. */}
+      {/*
+        Resize grip. Revealed on hover on a pointer device, but permanently
+        visible on a touch screen — `grip-on-hover` is forced opaque under
+        `(pointer: coarse)`, because a control that only appears on hover simply
+        does not exist on a phone, and resizing was therefore impossible there.
+        The strip is 14px tall rather than 8px for the same reason.
+      */}
       {minutes >= 30 && (
         <div
           onPointerDown={(e) => beginDrag(e, "resize")}
           onPointerMove={updateDrag}
           onPointerUp={endDrag}
-          className="absolute inset-x-0 bottom-0 z-10 h-2 cursor-ns-resize opacity-0 transition-opacity group-hover:opacity-100"
+          className="grip-on-hover absolute inset-x-0 bottom-0 z-block flex h-[14px] items-end justify-center pb-[3px] opacity-0 transition-opacity group-hover:opacity-100"
+          style={{ cursor: "ns-resize" }}
           aria-hidden
         >
           <span
-            className="mx-auto mt-0.5 block h-[3px] w-6 rounded-full"
+            className="block h-[3px] w-7 rounded-full"
             style={{ background: accent }}
           />
         </div>
